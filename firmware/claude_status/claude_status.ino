@@ -18,7 +18,7 @@
 #include <esp_task_wdt.h>
 #include "sprites.h"
 
-#define FW_VERSION "9.4"
+#define FW_VERSION "9.5"
 
 // --- board pins (Waveshare wiki: ESP32-C6-LCD-1.47) -----------------------
 #define PIN_MOSI 6
@@ -46,6 +46,7 @@
 #define CYCLE_PAGE_MS     8000UL
 #define SAVER_MS          (5UL * 60UL * 1000UL)   // after 5 min idle: space screensaver
 #define DONE_REST_MS      (15UL * 60UL * 1000UL)  // an unanswered turn insists this long, then rests
+#define SCREEN_OFF_MS     (10UL * 60UL * 1000UL)  // after 10 min at rest the panel goes dark
 #define NOLINK_DIM_MS     (2UL * 60UL * 1000UL)
 #define BTN_LONG_MS       800UL
 #define BTN_ROTATE_MS     3000UL
@@ -709,6 +710,9 @@ bool restingState() {
   return head == H_IDLE || head == H_NOLINK;
 }
 bool saverActive() { return restingState() && !toast[0] && !(!haveLink && S.ts) && millis() - stateChangedAt > SAVER_MS; }
+// Dark, not asleep. The LED keeps carrying the state, which is the part that reads across a
+// room anyway; the panel is only worth lighting for someone standing in front of it.
+bool screenOff() { return restingState() && !toast[0] && millis() - stateChangedAt > SCREEN_OFF_MS; }
 bool cycling() { return restingState() && !toast[0] && !saverActive() && millis() - stateChangedAt > CYCLE_MS; }
 
 void initStars() {
@@ -862,9 +866,10 @@ void updateBacklight() {
   if (head == H_IDLE && t > IDLE_DIM_MS && !saverActive()) target = 30;
   if (head == H_NOLINK && t > NOLINK_DIM_MS) target = 20;
   if (page != PG_OVERVIEW || cycling() || (toast[0] && millis() - toastAt < TOAST_MS)) target = full;
+  if (screenOff()) target = 0;                        // last word: nothing wants you, so go dark
   if (target != backlight) { backlight = target; analogWrite(PIN_BL, backlight); }
 }
-bool screenDimmed() { return backlight <= 30; }
+bool screenDimmed() { return backlight <= 30; }   // includes fully off
 
 // --- button ------------------------------------------------------------------------------------------
 unsigned long btnDownAt = 0, btnLastChange = 0;
@@ -1085,6 +1090,7 @@ void loop() {
 
   drainSerial();
   unsigned long frame = (saverActive() || marqueeActive || head == H_WORKING) ? 80UL : (toast[0] || (head == H_IDLE && page == PG_OVERVIEW)) ? 500UL : 10000UL;
-  if (dirty || millis() - lastDraw > frame) { render(); lastDraw = millis(); dirty = false; }
+  if (screenOff()) { dirty = true; }                  // nothing to draw; redraw on the way back up
+  else if (dirty || millis() - lastDraw > frame) { render(); lastDraw = millis(); dirty = false; }
   delay(10);
 }

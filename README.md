@@ -151,8 +151,9 @@ done mascot, and the LED stays amber.
 After 1 minute of idle or no-link the board cycles through the
 pages (Overview, Sessions, Burn, Limits, Stats, API, About) every 8 s; after 5 minutes the screensaver starts:
 a drifting starfield, the mascot bouncing around the screen, the host clock, and the two
-rate limits along the bottom. The LED runs a slow dim aurora while idle. Any tap or
-state change wakes it.
+rate limits along the bottom. After 10 minutes the backlight goes off entirely and the board stops
+painting a panel nobody can see. It is dark, not asleep: the LED keeps carrying the state, which is the
+part that reads across a room anyway. Any tap or state change wakes it, and a tap buys another 10 minutes.
 
 ## Colour language
 
