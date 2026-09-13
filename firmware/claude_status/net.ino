@@ -115,9 +115,9 @@ void httpRoot() {
 void httpInfo() {
   char b[320];
   snprintf(b, sizeof b, "{\"fw\":\"" FW_VERSION "\",\"ip\":\"%s\",\"rssi\":%d,\"ntp\":%s,\"ble\":%s,"
-           "\"transport\":\"%s\",\"own_out\":\"%s\",\"heap\":%u,\"minheap\":%u,\"uptime_s\":%lu}",
+           "\"transport\":\"%s\",\"own_out\":\"%s\",\"sd\":%lu,\"heap\":%u,\"minheap\":%u,\"uptime_s\":%lu}",
            WiFi.localIP().toString().c_str(), WiFi.RSSI(), ntpSet ? "true" : "false", bleUp ? "true" : "false",
-           transport, netOut, (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMinFreeHeap(), millis() / 1000UL);
+           transport, netOut, (unsigned long)(sdUp ? sdSizeMB : 0), (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMinFreeHeap(), millis() / 1000UL);
   http.send(200, "application/json", b);
 }
 

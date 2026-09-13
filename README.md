@@ -55,7 +55,7 @@ several sessions are written down.
 ## What you need
 
 - **Waveshare ESP32-C6-LCD-1.47**, the non-touch model. No other hardware, no soldering.
-  The microSD slot and the 802.15.4 radio go unused.
+  The 802.15.4 radio goes unused.
 - **A Mac.** A launchd agent pushes status to the board. The daemon itself is portable
   Python, but the installer and the service definition are macOS-only. Linux would need
   a systemd unit; nobody has written one.
@@ -255,32 +255,30 @@ uv run --script host/gen_sprite.py bot_done 48 "pixel art prompt..." --force
 
 ## Hardware notes
 
-The TF (microSD) slot exists but **no SD code ships in the firmware**. The test card failed,
-and the schematic explains why the diagnosis is conclusive.
+The TF (microSD) slot works, and the firmware uses it for one thing: a history sample every
+five minutes, appended to `/hist.csv` as `epoch,week%,5h%,ctx%,state`. The weekly-burn page is
+seeded from it at boot, so the curve is populated before the daemon connects and survives the
+Mac being asleep. Host-supplied history overwrites it as soon as a payload arrives, because
+the host knows where the week boundary is. No card is fine; the slot is optional and the
+firmware retries the mount every five minutes so a card inserted later starts working without
+a reset.
 
-Confirmed from the board's netlist, not the wiki table: `SD_CS` is GPIO4 (TF pin 2),
-`SD_MISO` GPIO5 (pin 7), `SD_MOSI` GPIO6 (pin 3, shared with `LCD_DIN`), `SD_SCLK` GPIO7
-(pin 5, shared with `LCD_CLK`). Crucially, **R15-R20 are 10K pull-ups to 3V3 on every SD
-line**, so those lines are never floating.
-
-A bit-banged CMD0 probe on the raw pins then reads:
-
-```text
-deselected:    FFFFFFFF     the 10K pull-up holds the line high: wiring and resistor intact
-selected:      80000000     the line is dragged to 0 on the first clock
-CMD0 response: 000000...    never returns the required 0x01
-```
-
-Holding that line at 0 V against a 10K pull-up means sinking roughly 330 uA continuously.
-Nothing passive does that, and an empty slot certainly cannot. So a card is present, its DO
-pin is actively driving low, and it never releases to answer. That is a failed card
-controller, not a wiring, power, speed or ordering problem: eight spec-compliant cold starts,
-a full power cycle, a reseat and a run with the backlight off all produce the identical trace.
+From the board's netlist, not the wiki table: `SD_CS` is GPIO4 (TF pin 2), `SD_MISO` GPIO5
+(pin 7), `SD_MOSI` GPIO6 (pin 3, shared with `LCD_DIN`), `SD_SCLK` GPIO7 (pin 5, shared with
+`LCD_CLK`), and R15-R20 are 10K pull-ups to 3V3 on every SD line. Because MOSI and SCLK also
+drive the panel, the card is clocked at a conservative 4 MHz and every SD call is made from
+`loop()`, on the same thread as the renderer, so the two never overlap a transaction.
 
 There is no card-detect line wired to a GPIO, so the board cannot know a card is inserted
-except by talking to it. The whole SD stack was removed: ~46 KB of a 2 MB app slot with no
-OTA, for hardware that does not work. Git history has the diagnostics if a different card is
-ever fitted.
+except by talking to it.
+
+**A correction.** An earlier version of this file declared the test card dead, on the strength
+of a bit-banged CMD0 probe that never saw the required `0x01` response. That conclusion was
+wrong. A second card produced the identical trace from the same probe and then mounted and
+passed a write-and-read-back test with the stock library, and so did the original card, at
+400 kHz, 4 MHz and 20 MHz from cold, with its previous contents intact. The probe was the
+broken part, not the card: it was never validated against a card known to be good, which is
+the control that mattered. Why SD failed inside the original firmware is still unexplained.
 
 ### The case
 

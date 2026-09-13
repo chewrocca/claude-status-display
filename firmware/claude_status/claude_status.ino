@@ -18,7 +18,7 @@
 #include <esp_task_wdt.h>
 #include "sprites.h"
 
-#define FW_VERSION "9.2"
+#define FW_VERSION "9.3"
 
 // --- board pins (Waveshare wiki: ESP32-C6-LCD-1.47) -----------------------
 #define PIN_MOSI 6
@@ -30,6 +30,7 @@
 #define PIN_RGB  8
 #define PIN_BTN  9      // BOOT button, active low
 #define PIN_MISO 5
+#define PIN_SD_CS 4   // TF slot; MOSI/SCLK are shared with the panel
 
 #define LCD_W 172
 #define LCD_H 320
@@ -92,6 +93,8 @@ struct Status {
 } S;
 
 const char *clockStr();
+void sdBegin(); void sdLoop(); int sdLoadHistory(uint8_t *out, int maxPoints);
+extern bool sdUp; extern uint32_t sdSizeMB;
 void netBegin(); void netLoop(); void netForcePoll(); void netCommand(JsonDocument &doc); void netReport(); void bleNotifyState();
 extern char netOut[12]; extern char netComp[8]; extern char netOther[84]; extern bool wifiUp; extern char transport[8];
 
@@ -668,7 +671,9 @@ void pageAbout() {
   int ly = landscape() ? 40 : 64, ry = landscape() ? 40 : 180;
   if (landscape()) { textAt(6, 6, "CLAUDE STATUS", 3, C_TXT); drawClaudeMark(W() - 24, H() - 24, 36); }
   else { textAt(6, 6, "CLAUDE", 3, C_TXT); textAt(6, 32, "STATUS", 3, C_TXT); drawClaudeMark(W() - 26, 28, 40); }
-  snprintf(b, sizeof b, "fw %s", FW_VERSION);                textAt(lx, ly, b, 2, C_DIM);
+  if (sdUp) snprintf(b, sizeof b, "fw %s  sd %luG", FW_VERSION, (unsigned long)((sdSizeMB + 512) / 1024));
+  else      snprintf(b, sizeof b, "fw %s", FW_VERSION);
+  textAt(lx, ly, b, 2, C_DIM);
   snprintf(b, sizeof b, "%s %s", clockStr(), wifiUp ? "wifi" : "usb"); textAt(lx, ly + 20, b, 2, C_DIM);
   snprintf(b, sizeof b, "up %lum", millis() / 60000UL);       textAt(lx, ly + 40, b, 2, C_DIM);
   textAt(lx, ly + 60, nightMode() ? "night mode" : "day mode", 2, C_DIM);
@@ -1045,6 +1050,8 @@ void setup() {
   tft.setSPISpeed(40000000);
   tft.invertDisplay(true);
   applyRotation();
+  sdBegin();
+  if (sdUp && S.nhist == 0) S.nhist = sdLoadHistory(S.hist, sizeof S.hist);
   netBegin();
   stateChangedAt = millis();
   render();
@@ -1067,6 +1074,7 @@ void loop() {
   } else if (page != PG_OVERVIEW && millis() - pageChangedAt > PAGE_RETURN_MS) { page = PG_OVERVIEW; dirty = true; }
 
   pollButton();
+  sdLoop();
   updateBacklight();
   updateLed();
 
