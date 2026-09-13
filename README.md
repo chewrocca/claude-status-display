@@ -143,8 +143,11 @@ newest session, the attention files, and the status page, then writes one JSON l
 
 Pages (press BOOT): Overview → Sessions → Weekly burn → Limits detail → Stats (session cost, wall and API time,
 lines changed, tokens, prompt-cache hit rate, the useful part of /usage) → API incident → About. Non-overview pages
-return after 20 s. The board only rests when nothing wants you: an unacknowledged YOUR TURN never falls behind
-a screensaver, and neither does anything else while another window is still working.
+return after 20 s. The board only rests when nothing wants you: a permission prompt never falls behind a
+screensaver, and neither does anything else while another window is still working. A finished turn insists for
+15 minutes and then rests, because a panel that stays lit until someone walks over and presses a button is a
+nag, not a signal. Nothing is lost when it does: the screensaver still reads "ready" in amber, still draws the
+done mascot, and the LED stays amber.
 After 1 minute of idle or no-link the board cycles through the
 pages (Overview, Sessions, Burn, Limits, Stats, API, About) every 8 s; after 5 minutes the screensaver starts:
 a drifting starfield, the mascot bouncing around the screen, the host clock, and the two

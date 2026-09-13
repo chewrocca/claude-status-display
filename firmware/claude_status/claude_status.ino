@@ -18,7 +18,7 @@
 #include <esp_task_wdt.h>
 #include "sprites.h"
 
-#define FW_VERSION "9.3"
+#define FW_VERSION "9.4"
 
 // --- board pins (Waveshare wiki: ESP32-C6-LCD-1.47) -----------------------
 #define PIN_MOSI 6
@@ -45,6 +45,7 @@
 #define CYCLE_MS          (1UL * 60UL * 1000UL)   // after 1 min idle: cycle through the pages
 #define CYCLE_PAGE_MS     8000UL
 #define SAVER_MS          (5UL * 60UL * 1000UL)   // after 5 min idle: space screensaver
+#define DONE_REST_MS      (15UL * 60UL * 1000UL)  // an unanswered turn insists this long, then rests
 #define NOLINK_DIM_MS     (2UL * 60UL * 1000UL)
 #define BTN_LONG_MS       800UL
 #define BTN_ROTATE_MS     3000UL
@@ -699,7 +700,11 @@ unsigned long lastSaverFrame = 0;
 // Neither may a live session elsewhere: if anything is still working, the desk is not idle.
 bool restingState() {
   if (head == H_NEEDS) return false;                 // blocked on you, never rest
-  if (head == H_DONE)  return ack;                   // only once you have acknowledged it
+  // A finished turn insists for a quarter of an hour and then stops shouting. It is not
+  // forgotten: the screensaver still says "ready" in amber, still draws the done mascot, and
+  // the LED stays amber. Refusing to rest at all just pinned the panel on until someone
+  // walked over and pressed a button, which is not what the button is for.
+  if (head == H_DONE)  return ack || millis() - stateChangedAt > DONE_REST_MS;
   if (S.nwork > 0)     return false;                 // another window is still running
   return head == H_IDLE || head == H_NOLINK;
 }
