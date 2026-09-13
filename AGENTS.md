@@ -105,6 +105,17 @@ With several sessions open, the rule that works:
 - **Rate limits are account-wide.** They do not vary by session.
 - **Prune stale files.** A session killed without `SessionEnd` leaves a `working` or `done`
   file behind. Ignore anything older than ~30 minutes or a dead session pins your display.
+- **Rank by wait time, not just state.** A session blocked eight minutes is one you forgot
+  about; ten seconds is one you are actively answering. Sort blocked first, longest wait
+  first, and the top of your list is always the next thing to do.
+- **Separate finished from abandoned.** A session that completed 40 minutes ago is not
+  waiting on you, it is over. Treating both as "your turn" turns a to-do list into a
+  graveyard. Roughly 30 minutes is a reasonable line.
+- **A window silent for hours with no hook activity is closed, not idle.** Drop it.
+
+This is the part worth building, and this repository only reaches the shallow end of it.
+"Which of my five agents needs me" is a harder and more useful question than "what is this
+one doing".
 
 ## Claude API health, if you want it
 
