@@ -18,7 +18,7 @@
 #include <esp_task_wdt.h>
 #include "sprites.h"
 
-#define FW_VERSION "9.1"
+#define FW_VERSION "9.2"
 
 // --- board pins (Waveshare wiki: ESP32-C6-LCD-1.47) -----------------------
 #define PIN_MOSI 6
@@ -483,9 +483,9 @@ void pageLimits() {
     limitBlock(half, half, 4, "WEEKLY", S.wk, S.wkr, S.wkm, true);
     cv->drawFastVLine(half, 4, 126, C_PANEL);
     cv->drawFastHLine(6, 138, W() - 12, C_PANEL);
-    snprintf(b, sizeof b, "$%.2f ctx %d%%", S.cost, S.ctx < 0 ? 0 : S.ctx);
+    snprintf(b, sizeof b, "$%.2f", S.cost);
     textAt(6, 150, b, 2, C_DIM);
-    snprintf(b, sizeof b, "%.10s", S.dir[0] ? S.dir : S.model);
+    snprintf(b, sizeof b, "%.12s", S.dir[0] ? S.dir : S.model);
     textRight(150, b, 2, C_DIM);
   } else {
     limitBlock(0, W(), 6, "5-HOUR", S.h5, S.h5r, S.h5m, false);

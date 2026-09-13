@@ -5,16 +5,23 @@ weekly rate limits, whether it is working or waiting on you, and whether the Cla
 healthy. The RGB LED under the board carries the same state, so it reads from across the
 room without looking directly at it.
 
-![Claude has finished and is waiting on you](docs/photos/ready.jpg)
+![The device in a printed case, showing READY](docs/photos/ready.jpg)
+
+Amber means Claude has finished and is waiting on you, and the LED under the board glows the
+same colour. It runs off any USB-C power, so it does not have to stay tethered to the laptop.
+
+### The pages
+
+Captured from the device's own framebuffer, not photographed.
 
 | | |
 | --- | --- |
-| ![A rate limit reached](docs/photos/rate-limit.jpg) | ![API status](docs/photos/api-status.jpg) |
-| ![Limits detail](docs/photos/limits-page.jpg) | ![Session stats](docs/photos/stats-page.jpg) |
-
-Amber is your turn, magenta is a spent limit, blue with a rainbow LED is Claude working.
-The second photo is the same device in the dark: the case glows with whatever colour the
-band is showing.
+| **Overview** — the everyday view. CTX carries its window size, since 86% of 1M is not 86% of 200K. | **Sessions** — every live window, ranked so the top row is the thing to do next. |
+| ![Overview](docs/screens/overview.png) | ![Sessions](docs/screens/sessions.png) |
+| **Weekly burn** — spend against an even pace. Above the dotted line means running hot. | **Limits** — both windows with exact reset times. |
+| ![Weekly burn](docs/screens/burn.png) | ![Limits](docs/screens/limits.png) |
+| **Stats** — the useful part of `/usage`, including prompt-cache hit rate. | **API** — Claude API and Claude Code health, incidents in amber. |
+| ![Stats](docs/screens/stats.png) | ![API status](docs/screens/api.png) |
 
 **Take the idea, not the parts list.** Nobody is going to reproduce this exactly, and they
 should not try. The reusable part is not the firmware, it is that Claude Code already
