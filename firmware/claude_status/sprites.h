@@ -7,5 +7,7 @@
 #include "sprite_bot_outage.h"
 #include "sprite_bot_limited.h"
 #include "sprite_bot_nolink.h"
+#include "sprite_bot_float.h"
+#include "sprite_bot_working2.h"
 #define SPRITE_SZ 64
 #define SPRITE_KEY 0xF81F

@@ -18,7 +18,7 @@
 #include <esp_task_wdt.h>
 #include "sprites.h"
 
-#define FW_VERSION "7.9"
+#define FW_VERSION "8.0"
 
 // --- board pins (Waveshare wiki: ESP32-C6-LCD-1.47) -----------------------
 #define PIN_MOSI 6
@@ -180,10 +180,10 @@ void bigNumber(int x0, int w, int yBaseline, const char *s, uint16_t col) {   //
   cv->setFont(NULL);
 }
 
-void drawSprite(int x, int y, const uint16_t *spr, int scale = 1) {
+void drawSprite(int x, int y, const uint16_t *spr, int scale = 1, bool flip = false) {
   for (int j = 0; j < SPRITE_SZ; j++)
     for (int i = 0; i < SPRITE_SZ; i++) {
-      uint16_t c = pgm_read_word(&spr[j * SPRITE_SZ + i]);
+      uint16_t c = pgm_read_word(&spr[j * SPRITE_SZ + (flip ? SPRITE_SZ - 1 - i : i)]);
       if (c == SPRITE_KEY) continue;
       if (stale()) c = (c & 0xF7DE) >> 1;   // half brightness when stale
       if (scale == 1) cv->drawPixel(x + i, y + j, c);
@@ -292,7 +292,14 @@ void bandPortrait() {                      // 172 x 60 across the top
   BandStyle b = bandStyle();
   cv->fillRect(0, 0, W(), 76, b.bg);
   if (outageMajor() && head != H_OUTAGE) cv->fillRect(0, 70, W(), 6, C_RED);
-  drawSprite(4, 4, b.spr);
+  {
+    const uint16_t *spr = b.spr; int sy = 4;
+    if (head == H_WORKING) {
+      spr = ((millis() / 380) & 1) ? sprite_bot_working2 : sprite_bot_working;
+      sy += (int)(1.5f + 1.5f * sinf((millis() % 2400) / 2400.0f * 6.2831853f));
+    }
+    drawSprite(4, sy, spr);
+  }
   if (b.l2[0]) { textAt(74, 14, b.l1, 3, b.fg); textAt(74, 40, b.l2, 3, b.fg); }
   else         { textAt(74, 26, b.l1, 3, b.fg); }
   if (stale()) textAt(W() - 20, 4, "?", 2, C_DIM);
@@ -304,7 +311,13 @@ void bandLandscape() {                     // 112 x 172 down the left side
   BandStyle b = bandStyle();
   cv->fillRect(0, 0, LB_W, H(), b.bg);
   if (outageMajor() && head != H_OUTAGE) cv->fillRect(0, H() - 6, LB_W, 6, C_RED);
-  drawSprite((LB_W - SPRITE_SZ) / 2, 2, b.spr);
+  int spriteY = 2;
+  const uint16_t *spr = b.spr;
+  if (head == H_WORKING) {                              // two-frame keystroke plus a slow bob
+    spr = ((millis() / 380) & 1) ? sprite_bot_working2 : sprite_bot_working;
+    spriteY += (int)(1.5f + 1.5f * sinf((millis() % 2400) / 2400.0f * 6.2831853f));
+  }
+  drawSprite((LB_W - SPRITE_SZ) / 2, spriteY, spr);
   if (b.l2[0]) { textCenteredIn(0, LB_W, 70, b.l1, 3, b.fg); textCenteredIn(0, LB_W, 96, b.l2, 3, b.fg); }
   else         { textCenteredIn(0, LB_W, 82, b.l1, 3, b.fg); }
   if (stale()) textAt(LB_W - 18, 4, "?", 2, C_DIM);
@@ -573,9 +586,18 @@ void pageSaver() {
   if (top >= bottom) { top = 0; bottom = H() - SPRITE_SZ; }
   if (botX <= 0 || botX >= W() - SPRITE_SZ) { botVX = -botVX; botX = constrain(botX, 0, W() - SPRITE_SZ); }
   if (botY <= top || botY >= bottom) { botVY = -botVY; botY = constrain(botY, top, bottom); }
-  const uint16_t *spr = head == H_DONE ? sprite_bot_done : head == H_NOLINK ? sprite_bot_nolink : sprite_bot_idle;
-  drawSprite((int)botX, (int)botY, spr);
-  if (head == H_IDLE && ((millis() / 700) & 1)) textAt((int)botX + SPRITE_SZ - 6, (int)botY - 8, "z", 2, C_BLUE);
+  // Every ~11 s he stops tumbling and waves at you for a moment.
+  unsigned long cyc = millis() % 11000UL;
+  bool waving = cyc < 1800UL;
+  const uint16_t *spr;
+  if (head == H_NOLINK)      spr = sprite_bot_nolink;
+  else if (head == H_DONE)   spr = sprite_bot_done;
+  else if (waving)           spr = sprite_bot_done;
+  else                       spr = sprite_bot_float;
+  int sy = (int)botY + (int)(2.0f * sinf((millis() % 3000) / 3000.0f * 6.2831853f));
+  drawSprite((int)botX, sy, spr, 1, botVX < 0);          // face the way he is drifting
+  if (head == H_IDLE && !waving && ((millis() / 700) & 1))
+    textAt((int)botX + SPRITE_SZ - 6, sy - 8, "z", 2, C_BLUE);
 
   // clock + status strip
   { const char *ck = clockStr(); textAt(W() - 6 - textW(ck, 3), 6, ck, 3, C_TXT); }

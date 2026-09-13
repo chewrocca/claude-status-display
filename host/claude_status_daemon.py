@@ -36,6 +36,7 @@ BOARD_HOST = os.environ.get("CLAUDE_STATUS_HOST", "claude-status.local")   # Wi-
 TOKEN_FILE = os.path.join(STATE, "token")
 HTTP_RETRY_S = 10
 HTTP_TIMEOUT_S = 8        # mDNS resolution alone can take 5 s on a cold cache
+SERIAL_COOLDOWN_S = 300   # a port that never acknowledges is not our board; stop poking it
 STATUS_POLL_S = 90
 # Components whose health drives the display; everything else is reported as "other".
 WATCH = {"Claude API (api.anthropic.com)": "API", "Claude Code": "CODE"}
@@ -348,20 +349,26 @@ def main():
     http = HttpLink()
     ser, last_sent, last_key, buf = None, 0, None, ""
     serial_since = 0.0
+    serial_blocked_until = 0.0
     while True:
         try:
-            if ser is None:
+            if ser is None and time.time() >= serial_blocked_until:
                 ser = open_port()
-                serial_since = time.time()
+                if ser is not None:
+                    serial_since = time.time()
+                    handle_device.acked = False
             if ser is not None:
                 buf = handle_device(ser, poller, buf)
                 # If nothing on that port ever acknowledges, it is not our board. Drop it
                 # and let the Wi-Fi path take over instead of writing into the void.
                 if not handle_device.acked and time.time() - serial_since > 20:
-                    log("serial port never acknowledged; falling back to wifi")
+                    # A wedged USB stack still enumerates, so the port opens and swallows
+                    # writes. Back off rather than reopening it every twenty seconds.
+                    log(f"serial port never acknowledged; using wifi, retrying in {SERIAL_COOLDOWN_S // 60} min")
                     try: ser.close()
                     except Exception: pass
                     ser, last_key = None, None
+                    serial_blocked_until = time.time() + SERIAL_COOLDOWN_S
             payload = build_payload(poller)
             key = {k: v for k, v in payload.items() if k not in ("age", "hm")}
             now = time.time()

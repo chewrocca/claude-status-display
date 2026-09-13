@@ -24,6 +24,27 @@ menu-bar item, a smart bulb that turns amber when Claude is waiting on you. The
 [data path](#where-the-data-comes-from) is about thirty lines of glue. Everything else here
 is one answer to what to do with it.
 
+## Build your own version
+
+The interesting part is not this board, it is that the data is already there. If you want a
+version that fits your desk, hand your coding agent [AGENTS.md](AGENTS.md) and one of these:
+
+> Read AGENTS.md in github.com/chewrocca/claude-status-display. Build me a macOS menu-bar
+> item using the same data path: a coloured dot for the state and the weekly rate limit as a
+> percentage. Amber when Claude is waiting on me. No hardware.
+
+> Read AGENTS.md in github.com/chewrocca/claude-status-display. I have a Hue bulb. Wire the
+> attention state to it: calm while Claude works, amber when it is my turn, and something
+> insistent when it is blocked on a permission prompt. Ignore the numbers entirely.
+
+> Read AGENTS.md in github.com/chewrocca/claude-status-display. I have an old iPad. Serve a
+> local page from the daemon showing the three gauges and the state, big enough to read from
+> across the room.
+
+Each is an afternoon at most, because the hard part is already solved: Claude Code publishes
+this through its status line and hooks, and the merge rules that make it correct across
+several sessions are written down.
+
 ## What you need
 
 - **Waveshare ESP32-C6-LCD-1.47**, the non-touch model. No other hardware, no soldering.
