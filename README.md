@@ -94,6 +94,8 @@ newest session, the attention files, and the status page, then writes one JSON l
 - Band: mascot + state word. BUSY (blue, LED rainbow), READY (amber), NEEDS YOU (orange-amber),
   RATE LIMIT (magenta), OUTAGE (red), IDLE / NO LINK (grey). A red strip on the band
   means a major API incident while another state is showing.
+- The CTX gauge carries its window size (`CTX 1M`), because a percentage means different
+  things at 1M and at 200K. The Stats page spells it out as "ctx 82% of 1M".
 - **The gauges stay quiet until they matter.** Below 70% all three collapse to one dim line,
   because nothing is decided at 31%. The space goes to the number that does change behaviour:
   weekly burn against an even pace, plus a sparkline of the current week with a dotted

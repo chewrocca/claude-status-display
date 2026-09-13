@@ -229,6 +229,23 @@ def session_stats(sl):
     }
 
 
+def window_label(size):
+    """1000000 -> '1M', 200000 -> '200K'. A context percentage means different things
+    depending on how big the window is, so the size belongs next to it."""
+    try:
+        n = int(size or 0)
+    except (TypeError, ValueError):
+        return ""
+    if n <= 0:
+        return ""
+    if n >= 1_000_000:
+        m = n / 1_000_000
+        return f"{m:.0f}M" if abs(m - round(m)) < 0.05 else f"{m:.1f}M"
+    if n >= 1000:
+        return f"{n // 1000}K"
+    return str(n)
+
+
 def session_rows():
     """One row per live session, ranked by who is blocked and for how long.
 
@@ -345,6 +362,7 @@ def build_payload(poller):
         wk, wkr, wkm = limit(rl.get("seven_day") or {}, True)
         p.update({
             "ctx": pct((sl.get("context_window") or {}).get("used_percentage")),
+            "cwin": window_label((sl.get("context_window") or {}).get("context_window_size")),
             "h5": h5, "h5r": h5r, "h5m": h5m,
             "wk": wk, "wkr": wkr, "wkm": wkm,
             "lim": h5 >= 100 or wk >= 100,
