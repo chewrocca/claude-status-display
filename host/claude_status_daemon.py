@@ -44,6 +44,7 @@ WEEK_S = 7 * 24 * 3600
 QUIET_BELOW = 70          # a gauge under this needs no space; nothing is decided at 31%
 MAX_SESSIONS = 4          # rows that fit the panel; the rest are summarised as a count
 ABANDONED_AFTER_S = 1800  # finished this long ago is not waiting on you, it is over
+SESSION_LIST_TTL_S = 7200 # a window silent this long is closed, not idle; drop it from the list
 STATUS_POLL_S = 90
 # Components whose health drives the display; everything else is reported as "other".
 WATCH = {"Claude API (api.anthropic.com)": "API", "Claude Code": "CODE"}
@@ -253,6 +254,10 @@ def session_rows():
         sl = read_json(f) or {}
         state, ts = att.get(sid, ("idle", m))
         wait = int(now - ts)
+        # No hook has fired and nothing has been written for hours: that window is closed,
+        # not idle. Listing it is clutter on a four-row page.
+        if sid not in att and now - m > SESSION_LIST_TTL_S:
+            continue
         if state == "done" and wait > ABANDONED_AFTER_S:
             state = "over"                      # finished long ago: not waiting on you
         name = (sl.get("session_name")
