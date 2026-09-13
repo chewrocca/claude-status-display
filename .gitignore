@@ -8,6 +8,7 @@ host/__pycache__/
 
 # generated previews; the sprite headers in firmware/ are the real artefacts
 host/shots/
+!docs/photos/
 host/sprites/candidates/
 host/sprites/_*.png
 host/sprites/old/

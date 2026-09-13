@@ -16,7 +16,7 @@ usage: provision.py --op REF --ssid X  password from 1Password (never printed)
        provision.py --forget         clear credentials on the board
        provision.py --status         show network status
 --op takes a 1Password secret reference and shells out to the `op` CLI, e.g.
-  --op "op://Easytyger Shared/Netgear/Wi-Fi/mr slate" --ssid "mr slate"
+  --op "op://Private/Router/Wi-Fi/home-2.4" --ssid "your-2.4GHz-network"
 --auto reads the System keychain, so macOS asks for your login password once; click
 Allow. Either way the Wi-Fi password goes straight to the board: it is never printed,
 logged, or written to disk on this Mac.
@@ -27,7 +27,7 @@ the board just sits at "connecting". Many routers use a separate name for 2.4 GH
 import getpass, glob, json, os, secrets, subprocess, sys, time
 import serial
 
-AGENT = "com.chewrocca.claude-esp32-status"
+AGENT = "com.claude-status.display"
 
 
 def agent(action):

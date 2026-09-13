@@ -18,7 +18,7 @@
 #include <esp_task_wdt.h>
 #include "sprites.h"
 
-#define FW_VERSION "7.8"
+#define FW_VERSION "7.9"
 
 // --- board pins (Waveshare wiki: ESP32-C6-LCD-1.47) -----------------------
 #define PIN_MOSI 6
@@ -166,7 +166,7 @@ void textCenteredIn(int x0, int w, int y, const char *s, uint8_t size, uint16_t 
   textAt(x0 + (w - textW(s, size)) / 2, y, s, size, col);
 }
 void textCentered(int y, const char *s, uint8_t size, uint16_t col) { textCenteredIn(0, W(), y, s, size, col); }
-void textRight(int y, const char *s, uint8_t size, uint16_t col, int margin = 6) {
+void textRight(int y, const char *s, uint8_t size, uint16_t col, int margin = 12) {   // clear of a case bezel
   textAt(W() - margin - textW(s, size), y, s, size, col);
 }
 void bigNumber(int x0, int w, int yBaseline, const char *s, uint16_t col) {   // FreeSansBold24pt, centred in [x0, x0+w)
@@ -431,7 +431,11 @@ void pageLimits() {
   }
 }
 
-void fmtK(int k, char *b, size_t n) { if (k >= 1000) snprintf(b, n, "%.1fM", k / 1000.0f); else snprintf(b, n, "%dk", k); }
+void fmtK(int k, char *b, size_t n) {
+  if (k >= 1000) snprintf(b, n, "%.1fM", k / 1000.0f);
+  else if (k > 0) snprintf(b, n, "%dk", k);
+  else snprintf(b, n, "<1k");            // never report a real count as "0k"
+}
 
 void pageStats() {                                   // the useful part of /usage
   char b[28], t1[12], t2[12];

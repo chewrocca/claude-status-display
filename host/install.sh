@@ -5,7 +5,7 @@ set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 STATE="$HOME/.claude/esp32-status"
-AGENT="com.chewrocca.claude-esp32-status"
+AGENT="com.claude-status.display"
 PLIST="$HOME/Library/LaunchAgents/$AGENT.plist"
 
 say() { printf '  %s\n' "$*"; }
