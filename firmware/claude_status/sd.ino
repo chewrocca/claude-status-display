@@ -21,11 +21,24 @@ static unsigned long sdLastSample = 0, sdLastTry = 0;
 // way to know a card is present is to talk to it.
 void sdBegin() {
   sdLastTry = millis();
-  esp_task_wdt_reset();
-  if (!SD.begin(PIN_SD_CS, spi, SD_HZ)) { sdUp = false; sdSizeMB = 0; return; }
-  if (SD.cardType() == CARD_NONE) { SD.end(); sdUp = false; sdSizeMB = 0; return; }
-  sdSizeMB = (uint32_t)(SD.cardSize() / (1024ULL * 1024ULL));
-  sdUp = true;
+  static const uint32_t ladder[] = { 20000000UL, 4000000UL, 1000000UL, 400000UL };
+  for (unsigned i = 0; i < sizeof ladder / sizeof ladder[0]; i++) {
+    esp_task_wdt_reset();
+    SD.end();
+    digitalWrite(PIN_CS, HIGH);            // park the panel before touching the shared bus
+    bool ok = SD.begin(PIN_SD_CS, spi, ladder[i]);
+    uint8_t type = ok ? SD.cardType() : CARD_NONE;
+    if (ok && type != CARD_NONE) {
+      sdSizeMB = (uint32_t)(SD.cardSize() / (1024ULL * 1024ULL));
+      sdUp = true;
+      Serial.printf("{\"sd\":{\"mb\":%lu,\"hz\":%lu}}\n", (unsigned long)sdSizeMB, (unsigned long)ladder[i]);
+      esp_task_wdt_reset();
+      return;
+    }
+  }
+  SD.end();
+  if (sdUp) Serial.println("{\"sd\":{\"mb\":0}}");   // it was there and now is not
+  sdUp = false; sdSizeMB = 0;
   esp_task_wdt_reset();
 }
 
