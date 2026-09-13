@@ -5,6 +5,14 @@ screen. Context window, 5-hour and weekly rate limits, whether Claude is working
 waiting on you, and whether the Claude API is healthy. The RGB LED under the board
 mirrors the state so you can read it from across the room.
 
+**Take the idea, not the parts list.** Nobody is going to reproduce this exactly, and they
+should not try. The reusable part is not the firmware, it is that Claude Code already
+publishes everything worth showing through two documented interfaces, so *any* display you
+already own can surface it: a spare phone, an e-ink badge, a Stream Deck, an LED strip, a
+menu-bar item, a smart bulb that turns amber when Claude is waiting on you. The
+[data path](#where-the-data-comes-from) is about thirty lines of glue. Everything else here
+is one answer to what to do with it.
+
 ![Rate limit reached](docs/photos/rate-limit.jpg)
 
 The band on the left is the state. Here the 5-hour window is spent, so the band and the
@@ -25,6 +33,22 @@ LED both go magenta. The gauges slide green through yellow to red as they fill.
   on API-key billing, and the 5HR and WEEK bars will sit empty. Everything else still works.
 - Optionally a printed case. The photos above use a snap-fit design from MakerWorld;
   see Hardware notes.
+
+## Where the data comes from
+
+No polling, no API key, no scraping. Two documented interfaces already publish everything:
+
+- **The status line.** Claude Code runs a command on every update and hands it a JSON blob
+  on stdin: context window, both rate-limit windows with reset times, model, effort, cost.
+  Two lines added to an existing status line script also write that payload to a file per
+  session. See `host/install.sh`.
+- **Hooks.** `Stop` fires when Claude finishes a turn. `Notification` with a
+  `permission_prompt` or `elicitation_dialog` type fires when a dialog has been waiting.
+  `PreToolUse` matched on `AskUserQuestion` catches Claude asking you something. Each writes
+  a small file. See `host/esp32-status-hook.sh`.
+
+A daemon merges the two and pushes one JSON line to whatever you want to drive. Swap the
+last step and the rest carries over unchanged.
 
 ## Pieces
 
