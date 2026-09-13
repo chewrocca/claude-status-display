@@ -18,7 +18,7 @@
 #include <esp_task_wdt.h>
 #include "sprites.h"
 
-#define FW_VERSION "9.0"
+#define FW_VERSION "9.1"
 
 // --- board pins (Waveshare wiki: ESP32-C6-LCD-1.47) -----------------------
 #define PIN_MOSI 6
@@ -86,7 +86,7 @@ struct Status {
   int pace = 999, quiet = 70, nhist = 0;
   uint8_t hist[40];
   struct Sess { char name[14]; char st; int wait; float cost; int ctx; } sess[4];
-  int nsess = 0, nrows = 0, nblk = 0, blkw = 0;
+  int nsess = 0, nrows = 0, nblk = 0, blkw = 0, nwork = 0;
   char ver[10] = "", cwin[8] = "";
   long ts = 0;
 } S;
@@ -689,7 +689,15 @@ bool starsInit = false;
 float botX = 20, botY = 20, botVX = 1.3f, botVY = 0.9f;
 unsigned long lastSaverFrame = 0;
 
-bool restingState() { return head == H_IDLE || head == H_DONE || head == H_NOLINK; }
+// "Resting" means nothing is asking for you. An unanswered YOUR TURN is the opposite of
+// that: the longer it waits the more it matters, so it must never fall behind a screensaver.
+// Neither may a live session elsewhere: if anything is still working, the desk is not idle.
+bool restingState() {
+  if (head == H_NEEDS) return false;                 // blocked on you, never rest
+  if (head == H_DONE)  return ack;                   // only once you have acknowledged it
+  if (S.nwork > 0)     return false;                 // another window is still running
+  return head == H_IDLE || head == H_NOLINK;
+}
 bool saverActive() { return restingState() && !toast[0] && !(!haveLink && S.ts) && millis() - stateChangedAt > SAVER_MS; }
 bool cycling() { return restingState() && !toast[0] && !saverActive() && millis() - stateChangedAt > CYCLE_MS; }
 
@@ -945,6 +953,7 @@ void handleLine(const char *line) {
   S.pace = doc["pace"] | 999;
   S.nsess = doc["nsess"] | 0;
   S.nblk  = doc["nblk"]  | 0;
+  S.nwork = doc["nwork"] | 0;
   S.blkw  = doc["blkw"]  | 0;
   S.nrows = 0;
   for (JsonObjectConst r : doc["sess"].as<JsonArrayConst>()) {

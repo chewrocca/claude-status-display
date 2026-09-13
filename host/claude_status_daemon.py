@@ -390,6 +390,9 @@ def build_payload(poller):
         blocked = [r for r in rows if r["s"] == "n"]
         p["nblk"] = len(blocked)               # the LED pulses this many times
         p["blkw"] = max((r["w"] for r in blocked), default=0)
+        # Another window still running means the desk is not idle, whatever the headline
+        # session is doing. Without this a finished session screensavers over a live one.
+        p["nwork"] = sum(1 for r in rows if r["s"] == "w")
     if not ts or now - ts > IDLE_AFTER_S:
         state = "idle"
     p["st"] = state
