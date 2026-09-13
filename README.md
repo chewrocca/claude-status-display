@@ -255,13 +255,32 @@ uv run --script host/gen_sprite.py bot_done 48 "pixel art prompt..." --force
 
 ## Hardware notes
 
-The TF (microSD) slot exists (CS GPIO 4, MISO GPIO 5, MOSI/SCLK shared with the LCD) but
-**no SD code ships in the firmware**. The test card failed: a bit-banged CMD0 probe on the
-raw pins showed the bus reading `FFFFFFFF` when deselected (so the read path is healthy)
-yet the line pulled low and held on select, never returning `0x01`, across eight
-spec-compliant cold starts, a full power cycle, and with the backlight off. The whole SD
-stack was removed: it cost ~46 KB of a 2 MB app slot with no OTA, and nothing uses it.
-Git history has the diagnostics if a different card is ever fitted.
+The TF (microSD) slot exists but **no SD code ships in the firmware**. The test card failed,
+and the schematic explains why the diagnosis is conclusive.
+
+Confirmed from the board's netlist, not the wiki table: `SD_CS` is GPIO4 (TF pin 2),
+`SD_MISO` GPIO5 (pin 7), `SD_MOSI` GPIO6 (pin 3, shared with `LCD_DIN`), `SD_SCLK` GPIO7
+(pin 5, shared with `LCD_CLK`). Crucially, **R15-R20 are 10K pull-ups to 3V3 on every SD
+line**, so those lines are never floating.
+
+A bit-banged CMD0 probe on the raw pins then reads:
+
+```text
+deselected:    FFFFFFFF     the 10K pull-up holds the line high: wiring and resistor intact
+selected:      80000000     the line is dragged to 0 on the first clock
+CMD0 response: 000000...    never returns the required 0x01
+```
+
+Holding that line at 0 V against a 10K pull-up means sinking roughly 330 uA continuously.
+Nothing passive does that, and an empty slot certainly cannot. So a card is present, its DO
+pin is actively driving low, and it never releases to answer. That is a failed card
+controller, not a wiring, power, speed or ordering problem: eight spec-compliant cold starts,
+a full power cycle, a reseat and a run with the backlight off all produce the identical trace.
+
+There is no card-detect line wired to a GPIO, so the board cannot know a card is inserted
+except by talking to it. The whole SD stack was removed: ~46 KB of a 2 MB app slot with no
+OTA, for hardware that does not work. Git history has the diagnostics if a different card is
+ever fitted.
 
 ### The case
 
