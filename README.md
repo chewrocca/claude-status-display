@@ -1,44 +1,39 @@
 # Claude Code status display
 
-A desk gadget that shows what Claude Code is doing, on a $20 ESP32 board with a 1.47"
-screen. Context window, 5-hour and weekly rate limits, whether Claude is working or
-waiting on you, and whether the Claude API is healthy. The RGB LED under the board
-mirrors the state so you can read it from across the room.
+A small screen on the desk showing what Claude Code is doing: context window, 5-hour and
+weekly rate limits, whether it is working or waiting on you, and whether the Claude API is
+healthy. The RGB LED under the board carries the same state, so it reads from across the
+room without looking directly at it.
+
+![Claude has finished and is waiting on you](docs/photos/ready.jpg)
+
+| | |
+| --- | --- |
+| ![A rate limit reached](docs/photos/rate-limit.jpg) | ![API status](docs/photos/api-status.jpg) |
+| ![Limits detail](docs/photos/limits-page.jpg) | ![Session stats](docs/photos/stats-page.jpg) |
+
+Amber is your turn, magenta is a spent limit, blue with a rainbow LED is Claude working.
+The second photo is the same device in the dark: the case glows with whatever colour the
+band is showing.
 
 **Take the idea, not the parts list.** Nobody is going to reproduce this exactly, and they
 should not try. The reusable part is not the firmware, it is that Claude Code already
-publishes everything worth showing through two documented interfaces, so *any* display you
+publishes everything worth showing through two documented interfaces, so any display you
 already own can surface it: a spare phone, an e-ink badge, a Stream Deck, an LED strip, a
 menu-bar item, a smart bulb that turns amber when Claude is waiting on you. The
 [data path](#where-the-data-comes-from) is about thirty lines of glue. Everything else here
 is one answer to what to do with it.
 
-![Claude has finished and is waiting on you](docs/photos/ready.jpg)
-
-The band on the left is the state, and the LED under the board carries the same colour.
-Amber means Claude finished and it is your turn. The gauges slide green through yellow to
-red as they fill.
-
-![A rate limit reached](docs/photos/rate-limit.jpg)
-
-Magenta on both the band and the LED means a limit is spent. The 5-hour bar is red and the
-reset time is inside it.
-
-| Limits page | Stats page |
-| --- | --- |
-| ![Limits](docs/photos/limits-page.jpg) | ![Stats](docs/photos/stats-page.jpg) |
-
 ## What you need
 
-- **Waveshare ESP32-C6-LCD-1.47** (the non-touch model, about $20). No other hardware,
-  no soldering. The microSD slot and the second radio go unused.
+- **Waveshare ESP32-C6-LCD-1.47**, the non-touch model. No other hardware, no soldering.
+  The microSD slot and the 802.15.4 radio go unused.
 - **A Mac.** A launchd agent pushes status to the board. The daemon itself is portable
   Python, but the installer and the service definition are macOS-only. Linux would need
   a systemd unit; nobody has written one.
 - **A Claude Pro or Max subscription** for the rate-limit gauges. Those fields are absent
   on API-key billing, and the 5HR and WEEK bars will sit empty. Everything else still works.
-- Optionally a printed case. The photos above use a snap-fit design from MakerWorld;
-  see Hardware notes.
+- Optionally a printed case. See Hardware notes for the one in the photos.
 
 ## Where the data comes from
 
