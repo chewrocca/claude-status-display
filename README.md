@@ -203,8 +203,25 @@ yet the line pulled low and held on select, never returning `0x01`, across eight
 spec-compliant cold starts, a full power cycle, and with the backlight off. The whole SD
 stack was removed: it cost ~46 KB of a 2 MB app slot with no OTA, and nothing uses it.
 Git history has the diagnostics if a different card is ever fitted.
-The About page shows the card size, and `{"cmd":"sd"}` over serial reports type, size,
-used space, and the root listing. Nothing is stored on it yet.
+
+### The case
+
+The one in the photos is
+[ESP32-C6 with LCD Screen Enclosure Case](https://makerworld.com/en/models/2121443-esp32-c6-with-lcd-screen-enclosure-case#profileId-2296385)
+on MakerWorld. It fits and it looks good, but seating the board took more force than was
+comfortable, enough that it felt like something was about to crack. Go slowly, start one
+corner at a time, and expect the USB-C end to be the stubborn one. The bezel also overlaps
+the panel by a few pixels, which is why the firmware keeps text clear of the right edge.
+
+Print in a light or translucent filament. The LED sits under the board and lights the case
+from inside, which is most of the charm, and an opaque print throws that away. Check the
+BOOT button stays reachable, since it is the only control.
+
+Untested alternatives: a [snap-on lid enclosure](https://www.printables.com/model/1365867-esp32-c6-147inch-display-enclosure)
+and a [reference CAD model of the board](https://www.printables.com/model/1633740-esp32-c6-lcd-147-reference-cad-model)
+if you want to design your own. Cases for the *Touch* variant do not fit; the cutouts differ.
+
+### Radios and inputs
 
 Wi-Fi 6 (2.4 GHz), BLE 5 and 802.15.4 radios on a ceramic antenna. No touchscreen, no IMU, no buzzer or haptic, no battery circuit. Inputs are the BOOT button (GPIO 9) and
 RESET. A vibration motor or piezo could be added on a free GPIO via the header if wanted.
