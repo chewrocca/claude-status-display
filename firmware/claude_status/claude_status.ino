@@ -18,7 +18,7 @@
 #include <esp_task_wdt.h>
 #include "sprites.h"
 
-#define FW_VERSION "8.2"
+#define FW_VERSION "8.4"
 
 // --- board pins (Waveshare wiki: ESP32-C6-LCD-1.47) -----------------------
 #define PIN_MOSI 6
@@ -83,6 +83,8 @@ struct Status {
   float cost = 0;
   bool lim = false, night = false, cw = false;
   int dur = 0, api = 0, la = 0, lr = 0, tin = 0, tout = 0, ch = -1;
+  int pace = 999, quiet = 70, nhist = 0;
+  uint8_t hist[40];
   char ver[10] = "";
   long ts = 0;
 } S;
@@ -370,6 +372,36 @@ const char *healthText(uint16_t *col) {
   snprintf(b, sizeof b, "%s %s", compName(), lvl);
   return b;
 }
+// One dim line for the gauges that are not worth the space. Nothing is decided at 31%.
+void gaugesCompact(int x, int y, bool skipCtx, bool skipH5, bool skipWk) {
+  char b[40]; b[0] = 0;
+  char part[14];
+  if (!skipCtx && S.ctx >= 0) { snprintf(part, sizeof part, "ctx%d ", S.ctx); strlcat(b, part, sizeof b); }
+  if (!skipH5 && S.h5 >= 0)   { snprintf(part, sizeof part, "5h%d ", S.h5);    strlcat(b, part, sizeof b); }
+  if (!skipWk && S.wk >= 0)   { snprintf(part, sizeof part, "wk%d", S.wk);     strlcat(b, part, sizeof b); }
+  if (b[0]) textAt(x, y, b, 2, C_DIM);
+}
+
+// Weekly burn against a linear pace. The diagonal is where you would be if you spent the
+// week evenly; the line is where you actually are. Above the diagonal means burning fast.
+void sparkline(int x, int y, int w, int h) {
+  cv->drawFastHLine(x, y + h, w, C_PANEL);
+  for (int i = 0; i <= w; i += 6)                       // the even-burn reference
+    cv->drawPixel(x + i, y + h - (i * h) / w, C_PANEL);
+  if (S.nhist < 2) {
+    textAt(x, y + h / 2 - 8, "collecting...", 2, C_PANEL);
+    return;
+  }
+  int prevX = x, prevY = y + h - (S.hist[0] * h) / 100;
+  for (int i = 1; i < S.nhist; i++) {
+    int px = x + (i * w) / (S.nhist - 1);
+    int py = y + h - (S.hist[i] * h) / 100;
+    cv->drawLine(prevX, prevY, px, py, dimIf(pctColor(S.hist[i])));
+    prevX = px; prevY = py;
+  }
+  cv->fillCircle(prevX, prevY, 2, dimIf(pctColor(S.hist[S.nhist - 1])));
+}
+
 void healthRow(int x, int y) {
   uint16_t ac; const char *api = healthText(&ac);
   if (!api) return;
@@ -383,9 +415,28 @@ void pageOverview() {
   fmtRemaining(S.h5m, r5, sizeof r5);
   fmtRemaining(S.wkm, rw, sizeof rw);
   if (landscape()) {
-    gaugeLandscape(4,  "CTX",  S.ctx, "");
-    gaugeLandscape(50, "5HR",  S.h5,  r5);
-    gaugeLandscape(96, "WEEK", S.wk,  rw);
+    bool hotCtx = S.ctx >= S.quiet, hotH5 = S.h5 >= S.quiet, hotWk = S.wk >= S.quiet;
+    int y = 4;
+    if (hotCtx) { gaugeLandscape(y, "CTX",  S.ctx, "");  y += 46; }
+    if (hotH5)  { gaugeLandscape(y, "5HR",  S.h5,  r5);  y += 46; }
+    if (hotWk)  { gaugeLandscape(y, "WEEK", S.wk,  rw);  y += 46; }
+    if (hotCtx || hotH5 || hotWk) {
+      gaugesCompact(LB_W + 8, y + 2, hotCtx, hotH5, hotWk);
+    } else {
+      // Nothing needs a decision, so spend the space on the one thing that might:
+      // whether this week is running ahead of an even burn.
+      gaugesCompact(LB_W + 8, 6, false, false, false);
+      char b[20];
+      if (S.pace != 999) {
+        const char *word = S.pace > 8 ? "ahead" : S.pace < -8 ? "behind" : "on pace";
+        uint16_t pc = S.pace > 20 ? C_ORANGE : S.pace > 8 ? C_AMBER : C_GREEN;
+        if (S.pace > 8 || S.pace < -8) snprintf(b, sizeof b, "%+d%% %s", S.pace, word);
+        else                            snprintf(b, sizeof b, "%s", word);
+        textAt(LB_W + 8, 28, "WEEK", 2, C_DIM);
+        textAt(LB_W + 8 + textW("WEEK ", 2), 28, b, 2, pc);
+      }
+      sparkline(LB_W + 8, 52, W() - LB_W - 16, 70);
+    }
     uint16_t c;
     if (healthText(&c)) healthRow(LB_W + 6, 148);
     else {
@@ -794,6 +845,13 @@ void handleLine(const char *line) {
   S.lim = doc["lim"] | false;
   S.dur = doc["dur"] | 0; S.api = doc["api"] | 0; S.la = doc["la"] | 0; S.lr = doc["lr"] | 0;
   S.tin = doc["tin"] | 0; S.tout = doc["tout"] | 0; S.ch = doc["ch"] | -1; S.cw = doc["cw"] | false;
+  S.pace = doc["pace"] | 999;
+  S.quiet = doc["quiet"] | 70;
+  S.nhist = 0;
+  for (JsonVariantConst v : doc["hist"].as<JsonArrayConst>()) {
+    if (S.nhist >= (int)sizeof S.hist) break;
+    S.hist[S.nhist++] = (uint8_t)constrain(v.as<int>(), 0, 100);
+  }
   copyStr(S.ver, sizeof S.ver, doc["ver"], "");
   bool hostNight = doc["night"] | false;
   if (hostNight != hostNightLast) { hostNightLast = hostNight; nightOverride = false; }   // window boundary clears manual override

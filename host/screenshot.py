@@ -24,7 +24,9 @@ def demo_payload():
     return {"out": "minor", "inc": "Elevated errors on Claude Cowork for Windows", "n": 2,
             "night": False, "hm": time.strftime("%I:%M%p").lstrip("0").lower(), "ctx": 27, "h5": 19, "h5r": "9:10pm", "h5m": 258,
             "wk": 53, "wkr": "Mon 9:00am", "wkm": 2408, "lim": False, "model": "Fable 5.1",
-            "dir": "esp32_project", "eff": "high", "cost": 9.87, "dur": 58, "api": 21, "la": 412, "lr": 96, "tin": 1090, "tout": 31, "ch": 94, "cw": True, "ver": "2.1.270", "st": "working", "ts": int(time.time()), "age": 3}
+            "dir": "esp32_project", "eff": "high", "cost": 9.87, "dur": 58, "api": 21, "la": 412, "lr": 96, "tin": 1090, "tout": 31, "ch": 94, "cw": True, "ver": "2.1.270",
+            "quiet": 70, "pace": 14,
+            "hist": [0,2,5,9,14,18,21,25,30,33,36,38,41,44,48,52,55,57,59,61,63,64], "st": "working", "ts": int(time.time()), "age": 3}
 
 
 def live_payload():

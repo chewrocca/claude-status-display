@@ -94,9 +94,12 @@ newest session, the attention files, and the status page, then writes one JSON l
 - Band: mascot + state word. BUSY (blue, LED rainbow), READY (amber), NEEDS YOU (orange-amber),
   RATE LIMIT (magenta), OUTAGE (red), IDLE / NO LINK (grey). A red strip on the band
   means a major API incident while another state is showing.
-- Three gauges: CTX, 5HR, WEEK. Big number is used %, with the % sign. Colour slides from
-  green through yellow and orange to red as usage climbs, and pulses at 95% or more. Time-to-reset is printed inside
-  the 5HR and WEEK bars. Reset times are 12-hour America/Chicago.
+- **The gauges stay quiet until they matter.** Below 70% all three collapse to one dim line,
+  because nothing is decided at 31%. The space goes to the number that does change behaviour:
+  weekly burn against an even pace, plus a sparkline of the current week with a dotted
+  reference showing where an even burn would put you. Above the diagonal means you are
+  running hot. Cross 70% and that gauge expands to a full bar with its reset time, while the
+  others stay on the dim line. Reset times are 12-hour America/Chicago.
 - Bottom row of the overview names the session being followed (it scrolls if too long): the session name if you set one
   with /rename, otherwise the project folder. The daemon follows whichever Claude Code session
   updated most recently, and the board flashes the new name when it switches.

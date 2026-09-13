@@ -37,6 +37,11 @@ TOKEN_FILE = os.path.join(STATE, "token")
 HTTP_RETRY_S = 10
 HTTP_TIMEOUT_S = 8        # mDNS resolution alone can take 5 s on a cold cache
 SERIAL_COOLDOWN_S = 300   # a port that never acknowledges is not our board; stop poking it
+HISTORY_FILE = os.path.join(STATE, "history.json")
+HISTORY_EVERY_S = 300     # one sample per 5 minutes is plenty for a 7-day window
+HISTORY_POINTS = 32       # samples sent to the device; it has 208 px to draw them in
+WEEK_S = 7 * 24 * 3600
+QUIET_BELOW = 70          # a gauge under this needs no space; nothing is decided at 31%
 STATUS_POLL_S = 90
 # Components whose health drives the display; everything else is reported as "other".
 WATCH = {"Claude API (api.anthropic.com)": "API", "Claude Code": "CODE"}
@@ -221,6 +226,56 @@ def session_stats(sl):
     }
 
 
+def record_history(weekly_pct, weekly_reset):
+    """Append a weekly-usage sample, pruned to the current window. Returns (series, pace).
+
+    pace is percentage points ahead of a linear burn: +12 means you have spent 12 points
+    more of the weekly budget than simply being this far through the week would predict.
+    That is the number worth acting on. The raw percentage is not.
+    """
+    now = time.time()
+    try:
+        hist = json.load(open(HISTORY_FILE))
+        if not isinstance(hist, list):
+            hist = []
+    except Exception:
+        hist = []
+
+    if not weekly_reset:
+        return [], None
+    start = weekly_reset - WEEK_S
+    # A reset drops everything from the previous window; the series is per window.
+    hist = [h for h in hist if isinstance(h, list) and len(h) == 2 and start <= h[0] <= now]
+    if not hist or now - hist[-1][0] >= HISTORY_EVERY_S:
+        hist.append([int(now), int(weekly_pct)])
+        try:
+            tmp = HISTORY_FILE + ".tmp"
+            with open(tmp, "w") as f:
+                json.dump(hist[-4000:], f)
+            os.replace(tmp, HISTORY_FILE)
+        except OSError as e:
+            log(f"history write failed: {e}")
+
+    elapsed = max(0.0, min(1.0, (now - start) / WEEK_S))
+    pace = int(round(weekly_pct - elapsed * 100))
+
+    # Downsample to a fixed width by bucketing over the window, so the x axis is time
+    # rather than sample count and a gap in sampling reads as a flat stretch.
+    if len(hist) < 2:
+        return [], pace
+    series = []
+    last = hist[0][1]
+    for i in range(HISTORY_POINTS):
+        lo = start + WEEK_S * i / HISTORY_POINTS
+        hi = start + WEEK_S * (i + 1) / HISTORY_POINTS
+        if lo > now:
+            break
+        vals = [v for t, v in hist if lo <= t < hi]
+        last = max(vals) if vals else last
+        series.append(last)
+    return series, pace
+
+
 def build_payload(poller):
     sl, mtime = latest_session()
     state, att_ts, n = attention()
@@ -247,6 +302,17 @@ def build_payload(poller):
             "cost": round(float((sl.get("cost") or {}).get("total_cost_usd") or 0), 2),
             **session_stats(sl),
         })
+        try:
+            reset_at = float((rl.get("seven_day") or {}).get("resets_at") or 0)
+        except (TypeError, ValueError):
+            reset_at = 0
+        if wk >= 0 and reset_at:
+            series, pace = record_history(wk, reset_at)
+            if series:
+                p["hist"] = series
+            if pace is not None:
+                p["pace"] = pace
+        p["quiet"] = QUIET_BELOW
     if not ts or now - ts > IDLE_AFTER_S:
         state = "idle"
     p["st"] = state
