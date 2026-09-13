@@ -100,9 +100,22 @@ newest session, the attention files, and the status page, then writes one JSON l
 - Bottom row of the overview names the session being followed (it scrolls if too long): the session name if you set one
   with /rename, otherwise the project folder. The daemon follows whichever Claude Code session
   updated most recently, and the board flashes the new name when it switches.
-- Health row replaces the session row when the Claude API or Claude Code component is not operational.
-  The page-level indicator is ignored, so a Cowork-only incident does not raise a warning.
-  Other components with issues are listed on the API page under "Other".
+- Health row replaces the session row when Claude API or Claude Code is not operational:
+
+  | Component state | Display | Colour |
+  | --- | --- | --- |
+  | operational | ALL GOOD | green |
+  | degraded performance, maintenance | DEGRADED | orange |
+  | partial outage | OUTAGE | red |
+  | major outage | CRITICAL | red |
+  | status page unreachable 3x | UNKNOWN | grey |
+
+  The LED carries the same thing: an orange tick every 6 s while degraded, a red tick every
+  3 s during an outage, overlaid on whatever the session state is doing. The page-level
+  indicator is ignored, so a Cowork-only incident does not raise a warning, but an incident
+  left open against Claude API or Claude Code counts as degraded even while Statuspage still
+  shows those components green. Incident text and other affected components are drawn in
+  amber on the API page.
 - Stale data (>10 min old) is drawn dim with a "?" in the band.
 
 Pages (press BOOT): Overview → Limits detail → Stats (session cost, wall and API time,

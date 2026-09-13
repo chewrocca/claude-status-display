@@ -18,7 +18,7 @@
 #include <esp_task_wdt.h>
 #include "sprites.h"
 
-#define FW_VERSION "8.1"
+#define FW_VERSION "8.2"
 
 // --- board pins (Waveshare wiki: ESP32-C6-LCD-1.47) -----------------------
 #define PIN_MOSI 6
@@ -116,6 +116,7 @@ int H() { return cv->height(); }
 
 const char *apiOut() { return haveLink ? S.out : netOut; }
 bool outageMajor() { return !strcmp(apiOut(), "major") || !strcmp(apiOut(), "critical"); }
+bool apiDegraded() { return !strcmp(apiOut(), "minor"); }
 
 Headline computeHeadline() {
   if (!haveLink) return H_NOLINK;
@@ -364,6 +365,7 @@ const char *healthText(uint16_t *col) {
   else if (!strcmp(apiOut(), "minor"))    { *col = C_ORANGE; lvl = "DEGRADED"; }
   else if (!strcmp(apiOut(), "major"))    { *col = C_RED;    lvl = "OUTAGE"; }
   else if (!strcmp(apiOut(), "critical")) { *col = C_RED;    lvl = "CRITICAL"; }
+  else if (haveLink)                      { *col = C_DIM;    lvl = "UNKNOWN"; }
   else                                    { *col = C_DIM;    return NULL; }
   snprintf(b, sizeof b, "%s %s", compName(), lvl);
   return b;
@@ -510,8 +512,8 @@ void pageApi() {
     textAt(60, 30, t, 3, c);
     cv->drawFastHLine(6, 62, W() - 12, C_PANEL);
     int lines = 1;
-    if (S.inc[0]) lines = wrapText(6, 70, S.inc, 25, C_TXT, 3); else textAt(6, 70, "No incidents", 2, C_DIM);
-    if (other[0]) wrapText(6, 70 + lines * 18 + 6, o, 25, C_DIM, 2);
+    if (S.inc[0]) lines = wrapText(6, 70, S.inc, 25, C_AMBER, 3); else textAt(6, 70, "No incidents", 2, C_DIM);
+    if (other[0]) wrapText(6, 70 + lines * 18 + 6, o, 25, C_AMBER, 2);
     textRight(H() - 20, "BOOT: next", 2, C_DIM);
   } else {
     textAt(60, 8, "CLAUDE", 2, C_DIM);
@@ -519,8 +521,8 @@ void pageApi() {
     textAt(6, 66, t, 3, c);
     cv->drawFastHLine(6, 96, W() - 12, C_PANEL);
     int lines = 1;
-    if (S.inc[0]) lines = wrapText(6, 106, S.inc, 14, C_TXT, 5); else textAt(6, 106, "No incidents", 2, C_DIM);
-    if (other[0]) wrapText(6, 106 + lines * 18 + 6, o, 14, C_DIM, 3);
+    if (S.inc[0]) lines = wrapText(6, 106, S.inc, 14, C_AMBER, 5); else textAt(6, 106, "No incidents", 2, C_DIM);
+    if (other[0]) wrapText(6, 106 + lines * 18 + 6, o, 14, C_AMBER, 3);
     textAt(6, H() - 20, "BOOT: next", 2, C_DIM);
   }
 }
@@ -678,7 +680,11 @@ void updateLed() {
     case H_OUTAGE:  lv = breathe(2000, 0.1f, 0.5f); break;
     default:        lv = (!night && now % 5000 < 2000) ? 0.5f : 0.0f; break;   // grey, slow blink
   }
-  if (outageMajor() && head != H_OUTAGE && now % 3000 < 200) { r = 255; g = 0; b = 0; lv = 0.6f; }
+  // Overlay the API's health on whatever the session state is doing, matching the colours
+  // the screen uses: orange for degraded, red for an outage. Degraded ticks half as often
+  // and dimmer, so it reads as news rather than an alarm.
+  if (outageMajor() && head != H_OUTAGE && now % 3000 < 200) { r = 255; g = 0;   b = 0; lv = 0.6f; }
+  else if (apiDegraded() && now % 6000 < 150)                { r = 255; g = 129; b = 0; lv = 0.35f; }
   setLed(r, g, b, lv);
 }
 
