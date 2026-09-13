@@ -120,11 +120,16 @@ newest session, the attention files, and the status page, then writes one JSON l
   shows those components green. Incident text and other affected components are drawn in
   amber on the API page.
 - Stale data (>10 min old) is drawn dim with a "?" in the band.
+- **Losing the daemon costs freshness, not data.** When nothing is pushing, the last known
+  numbers stay on screen, the band freezes to a muted version of the last state and stops
+  animating, and an amber age appears above it ("25s old"). The clock and the API health row
+  keep updating, because the board fetches both itself. NO LINK is shown only when the board
+  has never received anything at all.
 
-Pages (press BOOT): Overview → Limits detail → Stats (session cost, wall and API time,
+Pages (press BOOT): Overview → Weekly burn → Limits detail → Stats (session cost, wall and API time,
 lines changed, tokens, prompt-cache hit rate, the useful part of /usage) → API incident → About. Non-overview pages
 return after 20 s. After 1 minute of idle, ready, or no-link the board cycles through the
-pages (Overview, Limits, Stats, API, About) every 8 s; after 5 minutes the screensaver starts:
+pages (Overview, Burn, Limits, Stats, API, About) every 8 s; after 5 minutes the screensaver starts:
 a drifting starfield, the mascot bouncing around the screen, the host clock, and the two
 rate limits along the bottom. The LED runs a slow dim aurora while idle. Any tap or
 state change wakes it.

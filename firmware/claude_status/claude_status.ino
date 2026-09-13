@@ -18,7 +18,7 @@
 #include <esp_task_wdt.h>
 #include "sprites.h"
 
-#define FW_VERSION "8.4"
+#define FW_VERSION "8.7"
 
 // --- board pins (Waveshare wiki: ESP32-C6-LCD-1.47) -----------------------
 #define PIN_MOSI 6
@@ -95,7 +95,7 @@ extern char netOut[12]; extern char netComp[8]; extern char netOther[84]; extern
 
 struct BandStyle { const char *l1, *l2; uint16_t bg, fg; const uint16_t *spr; };
 enum Headline { H_NOLINK, H_IDLE, H_WORKING, H_DONE, H_NEEDS, H_LIMITED, H_OUTAGE };
-enum Page { PG_OVERVIEW, PG_LIMITS, PG_STATS, PG_API, PG_ABOUT, PG_COUNT };
+enum Page { PG_OVERVIEW, PG_BURN, PG_LIMITS, PG_STATS, PG_API, PG_ABOUT, PG_COUNT };
 
 char rx[1024]; uint16_t rxLen = 0;
 unsigned long lastRx = 0, rxAt = 0, stateChangedAt = 0;
@@ -109,7 +109,7 @@ uint8_t rotation = DEFAULT_ROTATION, backlight = 0;
 
 // --- helpers ---------------------------------------------------------------------
 int ageSec();
-bool stale() { return haveLink && millis() - rxAt > STALE_MS; }   // no push in 10 min, not "user is idle"
+bool stale() { return S.ts != 0 && millis() - rxAt > STALE_MS; }   // data is old, whatever the transport
 bool nightMode() { return nightOverride ? manualNight : S.night; }
 int ageSec() { return S.age < 0 ? -1 : S.age + (int)((millis() - rxAt) / 1000); }
 bool landscape() { return cv->width() > cv->height(); }
@@ -121,7 +121,7 @@ bool outageMajor() { return !strcmp(apiOut(), "major") || !strcmp(apiOut(), "cri
 bool apiDegraded() { return !strcmp(apiOut(), "minor"); }
 
 Headline computeHeadline() {
-  if (!haveLink) return H_NOLINK;
+  if (!haveLink && S.ts == 0) return H_NOLINK;        // nothing was ever received
   if (!strcmp(S.st, "needs_input")) return H_NEEDS;
   if (!strcmp(S.st, "done")) return H_DONE;
   if (outageMajor()) return H_OUTAGE;
@@ -286,6 +286,11 @@ BandStyle bandStyle() {
     default:        b = {"OUT",   "AGE",   C_RED,     C_TXT,  sprite_bot_outage}; break;
   }
   if (head == H_WORKING) b.bg = stateColor565();       // follows the LED hue exactly
+  if (!haveLink && S.ts) {                             // last known state, not a live one
+    uint8_t r, g, bl; stateRGB(r, g, bl);
+    b.bg = rgb565(r / 3, g / 3, bl / 3);
+    b.fg = C_DIM;
+  }
   if (stale()) { b.bg = C_PANEL; b.fg = C_DIM; }
   if (ack && (head == H_DONE || head == H_NEEDS)) { b.bg = C_PANEL; b.fg = head == H_DONE ? C_AMBER : C_ORANGE; }
   return b;
@@ -323,8 +328,17 @@ void bandLandscape() {                     // 112 x 172 down the left side
   drawSprite((LB_W - SPRITE_SZ) / 2, spriteY, spr);
   if (b.l2[0]) { textCenteredIn(0, LB_W, 70, b.l1, 3, b.fg); textCenteredIn(0, LB_W, 96, b.l2, 3, b.fg); }
   else         { textCenteredIn(0, LB_W, 82, b.l1, 3, b.fg); }
-  if (stale()) textAt(LB_W - 18, 4, "?", 2, C_DIM);
-  if (S.n > 1) { char c[6]; snprintf(c, sizeof c, "x%d", S.n); textAt(4, 4, c, 2, b.fg); }
+  if (!haveLink && S.ts) {
+    char w[16]; int a = ageSec();
+    if (a < 60)        snprintf(w, sizeof w, "%ds old", a);
+    else if (a < 3600) snprintf(w, sizeof w, "%dm old", a / 60);
+    else               snprintf(w, sizeof w, "%dh old", a / 3600);
+    cv->fillRect(0, 0, LB_W, 18, C_PANEL);
+    textCenteredIn(0, LB_W, 2, w, 2, C_AMBER);         // the feed is gone; the numbers are not
+  } else {
+    if (stale()) textAt(LB_W - 18, 4, "?", 2, C_DIM);
+    if (S.n > 1) { char c[6]; snprintf(c, sizeof c, "x%d", S.n); textAt(4, 4, c, 2, b.fg); }
+  }
   uint16_t sub = b.fg == 0x0000 ? 0x0000 : C_DIM;
   char s[16];
   if (S.model[0]) marquee(2, H() - 44, LB_W - 4, S.model, 2, sub, b.bg, LB_W);
@@ -415,28 +429,9 @@ void pageOverview() {
   fmtRemaining(S.h5m, r5, sizeof r5);
   fmtRemaining(S.wkm, rw, sizeof rw);
   if (landscape()) {
-    bool hotCtx = S.ctx >= S.quiet, hotH5 = S.h5 >= S.quiet, hotWk = S.wk >= S.quiet;
-    int y = 4;
-    if (hotCtx) { gaugeLandscape(y, "CTX",  S.ctx, "");  y += 46; }
-    if (hotH5)  { gaugeLandscape(y, "5HR",  S.h5,  r5);  y += 46; }
-    if (hotWk)  { gaugeLandscape(y, "WEEK", S.wk,  rw);  y += 46; }
-    if (hotCtx || hotH5 || hotWk) {
-      gaugesCompact(LB_W + 8, y + 2, hotCtx, hotH5, hotWk);
-    } else {
-      // Nothing needs a decision, so spend the space on the one thing that might:
-      // whether this week is running ahead of an even burn.
-      gaugesCompact(LB_W + 8, 6, false, false, false);
-      char b[20];
-      if (S.pace != 999) {
-        const char *word = S.pace > 8 ? "ahead" : S.pace < -8 ? "behind" : "on pace";
-        uint16_t pc = S.pace > 20 ? C_ORANGE : S.pace > 8 ? C_AMBER : C_GREEN;
-        if (S.pace > 8 || S.pace < -8) snprintf(b, sizeof b, "%+d%% %s", S.pace, word);
-        else                            snprintf(b, sizeof b, "%s", word);
-        textAt(LB_W + 8, 28, "WEEK", 2, C_DIM);
-        textAt(LB_W + 8 + textW("WEEK ", 2), 28, b, 2, pc);
-      }
-      sparkline(LB_W + 8, 52, W() - LB_W - 16, 70);
-    }
+    gaugeLandscape(4,  "CTX",  S.ctx, "");
+    gaugeLandscape(50, "5HR",  S.h5,  r5);
+    gaugeLandscape(96, "WEEK", S.wk,  rw);
     uint16_t c;
     if (healthText(&c)) healthRow(LB_W + 6, 148);
     else {
@@ -501,6 +496,30 @@ void fmtK(int k, char *b, size_t n) {
   if (k >= 1000) snprintf(b, n, "%.1fM", k / 1000.0f);
   else if (k > 0) snprintf(b, n, "%dk", k);
   else snprintf(b, n, "<1k");            // never report a real count as "0k"
+}
+
+// Weekly burn against an even spend. The dotted diagonal is where you would be if the
+// week were spent evenly; above it means running hot. The percentage is the gap.
+void pageBurn() {
+  char b[28];
+  bool land = landscape();
+  textAt(6, 6, "WEEKLY BURN", 2, C_DIM);
+  if (S.pace == 999) {
+    textAt(6, 34, "no data yet", 2, C_DIM);
+    return;
+  }
+  const char *word = S.pace > 8 ? "AHEAD OF PACE" : S.pace < -8 ? "UNDER PACE" : "ON PACE";
+  uint16_t pc = S.pace > 20 ? C_RED : S.pace > 8 ? C_ORANGE : S.pace < -8 ? C_GREEN : C_GREEN;
+  snprintf(b, sizeof b, "%+d%%", S.pace);
+  textAt(6, 28, b, 4, pc);
+  textAt(6 + textW(b, 4) + 10, 40, word, 2, pc);
+  char r[12]; fmtRemaining(S.wkm, r, sizeof r);
+  snprintf(b, sizeof b, "%d%% used   %s left", S.wk < 0 ? 0 : S.wk, r);
+  textAt(6, land ? 66 : 74, b, 2, C_TXT);
+  int y = land ? 88 : 100;
+  int h = land ? H() - y - 26 : 120;
+  sparkline(6, y, W() - 12, h);
+  textAt(6, H() - 20, S.nhist >= 2 ? "dotted = even spend" : "sampling every 5 min", 2, C_DIM);
 }
 
 void pageStats() {                                   // the useful part of /usage
@@ -606,7 +625,7 @@ float botX = 20, botY = 20, botVX = 1.3f, botVY = 0.9f;
 unsigned long lastSaverFrame = 0;
 
 bool restingState() { return head == H_IDLE || head == H_DONE || head == H_NOLINK; }
-bool saverActive() { return restingState() && !toast[0] && millis() - stateChangedAt > SAVER_MS; }
+bool saverActive() { return restingState() && !toast[0] && !(!haveLink && S.ts) && millis() - stateChangedAt > SAVER_MS; }
 bool cycling() { return restingState() && !toast[0] && !saverActive() && millis() - stateChangedAt > CYCLE_MS; }
 
 void initStars() {
@@ -675,6 +694,7 @@ void render() {
   cv->fillScreen(C_BG);
   if (saverActive()) pageSaver();
   else switch (page) {
+    case PG_BURN:   pageBurn();   break;
     case PG_LIMITS: pageLimits(); break;
     case PG_STATS:  pageStats();  break;
     case PG_API:    pageApi();    break;
@@ -705,6 +725,11 @@ void updateLed() {
   bool night = nightMode(), quiet = ack || stale();
   uint8_t r, g, b; stateRGB(r, g, b);                   // same colour the band is using
   float lv = 0;
+  if (!haveLink && S.ts) {                             // feed gone: hold a dim pilot light
+    setLed(r, g, b, night ? 0.0f : 0.08f);
+    if (outageMajor() && now % 3000 < 200) setLed(255, 0, 0, 0.6f);
+    return;
+  }
   switch (head) {
     case H_WORKING: lv = 0.6f; break;                   // rainbow, hue from stateRGB
     case H_DONE:                                        // amber glow: brief hello, then steady
