@@ -13,10 +13,16 @@ menu-bar item, a smart bulb that turns amber when Claude is waiting on you. The
 [data path](#where-the-data-comes-from) is about thirty lines of glue. Everything else here
 is one answer to what to do with it.
 
-![Rate limit reached](docs/photos/rate-limit.jpg)
+![Claude has finished and is waiting on you](docs/photos/ready.jpg)
 
-The band on the left is the state. Here the 5-hour window is spent, so the band and the
-LED both go magenta. The gauges slide green through yellow to red as they fill.
+The band on the left is the state, and the LED under the board carries the same colour.
+Amber means Claude finished and it is your turn. The gauges slide green through yellow to
+red as they fill.
+
+![A rate limit reached](docs/photos/rate-limit.jpg)
+
+Magenta on both the band and the LED means a limit is spent. The 5-hour bar is red and the
+reset time is inside it.
 
 | Limits page | Stats page |
 | --- | --- |
