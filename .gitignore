@@ -1,0 +1,13 @@
+# secrets, never commit
+.env.local
+
+# build output and caches
+firmware/build/
+host/__pycache__/
+*.pyc
+
+# generated previews; the sprite headers in firmware/ are the real artefacts
+host/shots/
+host/sprites/candidates/
+host/sprites/_*.png
+host/sprites/old/
