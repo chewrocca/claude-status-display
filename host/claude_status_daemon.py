@@ -170,14 +170,22 @@ class StatusPoller(threading.Thread):
                             worst, comp = lvl, WATCH[name]
                     elif lvl != "none":
                         others.append(f"{name.split(' (')[0]} {c.get('status', '').replace('_', ' ')}")
-                self.indicator, self.comp, self.failures = worst, comp, 0
                 self.other = "; ".join(others)[:80]
                 self.incident = ""
                 for inc in d.get("incidents") or []:
+                    if (inc.get("status") or "") in ("resolved", "postmortem"):
+                        continue
                     names = {x.get("name") for x in inc.get("components") or []}
-                    if names & set(WATCH):
-                        self.incident = (inc.get("name") or "")[:120]
-                        break
+                    if not (names & set(WATCH)):
+                        continue
+                    self.incident = (inc.get("name") or "")[:120]
+                    # Statuspage can leave a component green while an incident against it is
+                    # still open. Treat the open incident as at least a degradation.
+                    lvl = {"critical": "critical", "major": "major"}.get(inc.get("impact") or "", "minor")
+                    if RANK[lvl] > RANK[worst]:
+                        worst, comp = lvl, WATCH[sorted(names & set(WATCH))[0]]
+                    break
+                self.indicator, self.comp, self.failures = worst, comp, 0
                 if VERBOSE:
                     log(f"status {self.indicator} {self.comp} inc={self.incident!r} other={self.other!r}")
                 return

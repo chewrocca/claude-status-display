@@ -132,6 +132,8 @@ void pollStatusTask(void *) {
       if (h.begin(client, "https://status.claude.com/api/v2/summary.json") && (code = h.GET()) == 200) {
         JsonDocument filter, d;
         filter["components"][0]["name"] = true; filter["components"][0]["status"] = true;
+        filter["incidents"][0]["status"] = true; filter["incidents"][0]["impact"] = true;
+        filter["incidents"][0]["components"][0]["name"] = true;
         if (!deserializeJson(d, h.getStream(), DeserializationOption::Filter(filter))) {
           int worst = 0; const char *comp = ""; char others[sizeof netOther]; others[0] = 0;
           for (JsonObjectConst c : d["components"].as<JsonArrayConst>()) {
@@ -149,6 +151,23 @@ void pollStatusTask(void *) {
               strlcat(others, " ", sizeof others);
               strlcat(others, st, sizeof others);
             }
+          }
+          // Statuspage can leave a component green while an incident against it is still
+          // open. An open incident naming a watched component is at least a degradation.
+          for (JsonObjectConst inc : d["incidents"].as<JsonArrayConst>()) {
+            const char *st = inc["status"] | "";
+            if (!strcmp(st, "resolved") || !strcmp(st, "postmortem")) continue;
+            const char *hit = nullptr;
+            for (JsonObjectConst c : inc["components"].as<JsonArrayConst>()) {
+              const char *n = c["name"] | "";
+              if (!strncmp(n, "Claude API", 10)) { hit = "API"; break; }
+              if (!strcmp(n, "Claude Code"))     { hit = "CODE"; break; }
+            }
+            if (!hit) continue;
+            const char *im = inc["impact"] | "";
+            int lvl = !strcmp(im, "critical") ? 3 : !strcmp(im, "major") ? 2 : 1;
+            if (lvl > worst) { worst = lvl; comp = hit; }
+            break;
           }
           strlcpy(netOut, worst == 0 ? "none" : worst == 1 ? "minor" : worst == 2 ? "major" : "critical", sizeof netOut);
           strlcpy(netComp, comp, sizeof netComp);
