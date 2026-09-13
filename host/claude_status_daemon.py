@@ -42,6 +42,8 @@ HISTORY_EVERY_S = 300     # one sample per 5 minutes is plenty for a 7-day windo
 HISTORY_POINTS = 32       # samples sent to the device; it has 208 px to draw them in
 WEEK_S = 7 * 24 * 3600
 QUIET_BELOW = 70          # a gauge under this needs no space; nothing is decided at 31%
+MAX_SESSIONS = 4          # rows that fit the panel; the rest are summarised as a count
+ABANDONED_AFTER_S = 1800  # finished this long ago is not waiting on you, it is over
 STATUS_POLL_S = 90
 # Components whose health drives the display; everything else is reported as "other".
 WATCH = {"Claude API (api.anthropic.com)": "API", "Claude Code": "CODE"}
@@ -226,6 +228,51 @@ def session_stats(sl):
     }
 
 
+def session_rows():
+    """One row per live session, ranked by who is blocked and for how long.
+
+    The ordering is the product: the top row is always the thing to do next. Wait time
+    separates a session you are actively answering from one you forgot existed, and a
+    finished session past ABANDONED_AFTER_S is a graveyard entry rather than a to-do.
+    """
+    now = time.time()
+    att = {}
+    for f, m in fresh_files(ATTENTION):
+        d = read_json(f) or {}
+        try:
+            ts = float(d.get("ts", m))
+        except (TypeError, ValueError):
+            ts = m
+        if now - max(m, ts) > SESSION_TTL_S:
+            continue
+        att[os.path.splitext(os.path.basename(f))[0]] = (d.get("state") or "idle", ts)
+
+    rows = []
+    for f, m in fresh_files(SESSIONS):
+        sid = os.path.splitext(os.path.basename(f))[0]
+        sl = read_json(f) or {}
+        state, ts = att.get(sid, ("idle", m))
+        wait = int(now - ts)
+        if state == "done" and wait > ABANDONED_AFTER_S:
+            state = "over"                      # finished long ago: not waiting on you
+        name = (sl.get("session_name")
+                or os.path.basename((sl.get("workspace") or {}).get("current_dir") or "")
+                or sid[:8])
+        rows.append({
+            "n": name[:12],
+            "s": {"needs_input": "n", "done": "d", "working": "w", "over": "o", "idle": "i"}.get(state, "i"),
+            "w": wait,
+            "c": round(float((sl.get("cost") or {}).get("total_cost_usd") or 0), 2),
+            "x": pct((sl.get("context_window") or {}).get("used_percentage")),
+        })
+
+    # needs you first, then finished and waiting, then working, then over. Longest wait wins
+    # inside each band, because that is the one you have forgotten about.
+    order = {"n": 0, "d": 1, "w": 2, "o": 3, "i": 4}
+    rows.sort(key=lambda r: (order.get(r["s"], 9), -r["w"]))
+    return rows
+
+
 def record_history(weekly_pct, weekly_reset):
     """Append a weekly-usage sample, pruned to the current window. Returns (series, pace).
 
@@ -313,6 +360,13 @@ def build_payload(poller):
             if pace is not None:
                 p["pace"] = pace
         p["quiet"] = QUIET_BELOW
+    rows = session_rows()
+    if rows:
+        p["sess"] = rows[:MAX_SESSIONS]
+        p["nsess"] = len(rows)
+        blocked = [r for r in rows if r["s"] == "n"]
+        p["nblk"] = len(blocked)               # the LED pulses this many times
+        p["blkw"] = max((r["w"] for r in blocked), default=0)
     if not ts or now - ts > IDLE_AFTER_S:
         state = "idle"
     p["st"] = state

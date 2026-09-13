@@ -18,7 +18,7 @@
 #include <esp_task_wdt.h>
 #include "sprites.h"
 
-#define FW_VERSION "8.7"
+#define FW_VERSION "8.9"
 
 // --- board pins (Waveshare wiki: ESP32-C6-LCD-1.47) -----------------------
 #define PIN_MOSI 6
@@ -85,6 +85,8 @@ struct Status {
   int dur = 0, api = 0, la = 0, lr = 0, tin = 0, tout = 0, ch = -1;
   int pace = 999, quiet = 70, nhist = 0;
   uint8_t hist[40];
+  struct Sess { char name[14]; char st; int wait; float cost; int ctx; } sess[4];
+  int nsess = 0, nrows = 0, nblk = 0, blkw = 0;
   char ver[10] = "";
   long ts = 0;
 } S;
@@ -95,7 +97,7 @@ extern char netOut[12]; extern char netComp[8]; extern char netOther[84]; extern
 
 struct BandStyle { const char *l1, *l2; uint16_t bg, fg; const uint16_t *spr; };
 enum Headline { H_NOLINK, H_IDLE, H_WORKING, H_DONE, H_NEEDS, H_LIMITED, H_OUTAGE };
-enum Page { PG_OVERVIEW, PG_BURN, PG_LIMITS, PG_STATS, PG_API, PG_ABOUT, PG_COUNT };
+enum Page { PG_OVERVIEW, PG_SESSIONS, PG_BURN, PG_LIMITS, PG_STATS, PG_API, PG_ABOUT, PG_COUNT };
 
 char rx[1024]; uint16_t rxLen = 0;
 unsigned long lastRx = 0, rxAt = 0, stateChangedAt = 0;
@@ -522,6 +524,62 @@ void pageBurn() {
   textAt(6, H() - 20, S.nhist >= 2 ? "dotted = even spend" : "sampling every 5 min", 2, C_DIM);
 }
 
+uint16_t sessColor(char st) {
+  switch (st) {
+    case 'n': return C_ORANGE;     // blocked on you
+    case 'd': return C_AMBER;      // finished, your turn
+    case 'w': return C_BLUE;       // running
+    default:  return C_DIM;        // over, or idle
+  }
+}
+const char *sessWord(char st) {
+  // The colour bar already carries the state, so these only have to disambiguate.
+  switch (st) {
+    case 'n': return "YOU";
+    case 'd': return "ready";
+    case 'w': return "run";
+    case 'o': return "over";
+    default:  return "idle";
+  }
+}
+void fmtWait(int sec, char *b, size_t n) {
+  if (sec < 60)        snprintf(b, n, "%ds", sec);
+  else if (sec < 3600) snprintf(b, n, "%dm", sec / 60);
+  else if (sec < 86400)snprintf(b, n, "%dh", sec / 3600);
+  else                 snprintf(b, n, "%dd", sec / 86400);
+}
+
+// Ranked by who is blocked and for how long: the top row is the thing to do next.
+void pageSessions() {
+  char b[32];
+  if (S.nsess > S.nrows) snprintf(b, sizeof b, "SESSIONS %d  (%d shown)", S.nsess, S.nrows);
+  else                   snprintf(b, sizeof b, "SESSIONS %d", S.nsess);
+  textAt(6, 6, b, 2, C_DIM);
+  if (S.nrows == 0) { textAt(6, 34, "none active", 2, C_DIM); return; }
+
+  bool land = landscape();
+  int y = 28, rowH = land ? 30 : 34;
+  for (int i = 0; i < S.nrows && y + rowH <= H() - 22; i++) {
+    Status::Sess &e = S.sess[i];
+    uint16_t c = sessColor(e.st);
+    cv->fillRect(6, y + 2, 6, rowH - 8, c);                 // state as a colour bar
+    char w[10]; fmtWait(e.wait, w, sizeof w);
+    if (land) {
+      snprintf(b, sizeof b, "%.12s", e.name);
+      textAt(18, y + 2, b, 2, e.st == 'o' || e.st == 'i' ? C_DIM : C_TXT);
+      textAt(176, y + 2, sessWord(e.st), 2, c);         // colour carries the state; this disambiguates
+      textRight(y + 2, w, 2, C_DIM);                    // how long it has been like that
+    } else {
+      textAt(18, y + 2, e.name, 2, e.st == 'o' || e.st == 'i' ? C_DIM : C_TXT);
+      snprintf(b, sizeof b, "%s %s", sessWord(e.st), w);
+      textAt(18, y + 18, b, 2, c);
+    }
+    y += rowH;
+  }
+  textAt(6, H() - 20, S.nblk ? "top row is next" : "nothing blocked", 2,
+         S.nblk ? C_AMBER : C_DIM);
+}
+
 void pageStats() {                                   // the useful part of /usage
   char b[28], t1[12], t2[12];
   fmtK(S.tin, t1, sizeof t1); fmtK(S.tout, t2, sizeof t2);
@@ -694,6 +752,7 @@ void render() {
   cv->fillScreen(C_BG);
   if (saverActive()) pageSaver();
   else switch (page) {
+    case PG_SESSIONS: pageSessions(); break;
     case PG_BURN:   pageBurn();   break;
     case PG_LIMITS: pageLimits(); break;
     case PG_STATS:  pageStats();  break;
@@ -738,9 +797,15 @@ void updateLed() {
       else if (t < 120000UL) lv = 0.5f;
       else lv = 0.25f;
       break;
-    case H_NEEDS:                                       // orange, insistent breathe
-      if (quiet) lv = 0.15f;
-      else lv = breathe(night ? 1500 : 1000, 0.15f, 1.0f);
+    case H_NEEDS:                                       // orange; pulse once per blocked session
+      if (quiet) { lv = 0.15f; break; }
+      if (S.nblk > 1) {
+        unsigned long period = (unsigned long)S.nblk * 300UL + 1400UL;
+        unsigned long c = now % period;
+        lv = (c < (unsigned long)S.nblk * 300UL && (c % 300UL) < 160UL) ? 1.0f : 0.0f;
+      } else {
+        lv = breathe(night ? 1500 : 1000, 0.15f, 1.0f);
+      }
       break;
     case H_LIMITED: lv = breathe(4000, 0.1f, 0.4f); break;
     case H_IDLE:
@@ -871,6 +936,20 @@ void handleLine(const char *line) {
   S.dur = doc["dur"] | 0; S.api = doc["api"] | 0; S.la = doc["la"] | 0; S.lr = doc["lr"] | 0;
   S.tin = doc["tin"] | 0; S.tout = doc["tout"] | 0; S.ch = doc["ch"] | -1; S.cw = doc["cw"] | false;
   S.pace = doc["pace"] | 999;
+  S.nsess = doc["nsess"] | 0;
+  S.nblk  = doc["nblk"]  | 0;
+  S.blkw  = doc["blkw"]  | 0;
+  S.nrows = 0;
+  for (JsonObjectConst r : doc["sess"].as<JsonArrayConst>()) {
+    if (S.nrows >= 4) break;
+    Status::Sess &e = S.sess[S.nrows++];
+    strlcpy(e.name, r["n"] | "", sizeof e.name);
+    const char *st = r["s"] | "i";
+    e.st = st[0];
+    e.wait = r["w"] | 0;
+    e.cost = r["c"] | 0.0f;
+    e.ctx = r["x"] | -1;
+  }
   S.quiet = doc["quiet"] | 70;
   S.nhist = 0;
   for (JsonVariantConst v : doc["hist"].as<JsonArrayConst>()) {
