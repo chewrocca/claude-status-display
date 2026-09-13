@@ -259,30 +259,43 @@ uv run --script host/gen_sprite.py bot_done 48 "pixel art prompt..." --force
 
 ## Hardware notes
 
-The TF (microSD) slot works, and the firmware uses it for one thing: a history sample every
-five minutes, appended to `/hist.csv` as `epoch,week%,5h%,ctx%,state`. The weekly-burn page is
-seeded from it at boot, so the curve is populated before the daemon connects and survives the
-Mac being asleep. Host-supplied history overwrites it as soon as a payload arrives, because
-the host knows where the week boundary is. No card is fine; the slot is optional and the
-firmware retries the mount every five minutes so a card inserted later starts working without
-a reset.
+The TF (microSD) slot is optional, and **unverified on the unit these photos came from**. The
+firmware ships SD support and uses it for one thing: a history sample every five minutes,
+appended to `/hist.csv` as `epoch,week%,5h%,ctx%,state`. The weekly-burn page is seeded from it
+at boot, so the curve is populated before the daemon connects and survives the Mac being
+asleep. Host-supplied history overwrites it as soon as a payload arrives, because the host
+knows where the week boundary is. No card is a non-event; the firmware retries the mount every
+five minutes so a card inserted later starts working without a reset, and mounts down a speed
+ladder from 20 MHz to 400 kHz.
 
 From the board's netlist, not the wiki table: `SD_CS` is GPIO4 (TF pin 2), `SD_MISO` GPIO5
 (pin 7), `SD_MOSI` GPIO6 (pin 3, shared with `LCD_DIN`), `SD_SCLK` GPIO7 (pin 5, shared with
 `LCD_CLK`), and R15-R20 are 10K pull-ups to 3V3 on every SD line. Because MOSI and SCLK also
-drive the panel, the card is clocked at a conservative 4 MHz and every SD call is made from
-`loop()`, on the same thread as the renderer, so the two never overlap a transaction.
+drive the panel, the card is clocked conservatively and every SD call is made from `loop()`,
+on the same thread as the renderer, so the two never overlap a transaction.
 
 There is no card-detect line wired to a GPIO, so the board cannot know a card is inserted
-except by talking to it.
+except by talking to it. "No card" and "card that will not talk" are the same observation.
 
-**A correction.** An earlier version of this file declared the test card dead, on the strength
-of a bit-banged CMD0 probe that never saw the required `0x01` response. That conclusion was
-wrong. A second card produced the identical trace from the same probe and then mounted and
-passed a write-and-read-back test with the stock library, and so did the original card, at
-400 kHz, 4 MHz and 20 MHz from cold, with its previous contents intact. The probe was the
-broken part, not the card: it was never validated against a card known to be good, which is
-the control that mattered. Why SD failed inside the original firmware is still unexplained.
+**Two corrections, in order.** An earlier version of this file declared the test card dead on
+the strength of a bit-banged CMD0 probe. That was wrong: the probe was never validated against
+a card known to be good, and it produced the same failing trace for a card that then mounted
+fine elsewhere. A homemade diagnostic is a hypothesis, not an instrument.
+
+What replaced it is narrower. Using ESP-IDF's own SD driver, with the display never
+initialised and the radios down, this card fails at **CMD8 (`send_if_cond`)** — the card layer,
+before any filesystem is involved, so formatting is not the explanation either:
+
+```text
+sdspi_host_init_device:  ESP_OK
+sdmmc_init_sd_if_cond:   send_if_cond (1) returned 0x108
+sdmmc_card_init:         ESP_ERR_INVALID_RESPONSE
+```
+
+That establishes only that **this card does not initialise in this board's slot**. Whether the
+fault is the card, the socket, or the contacts is not something the board can distinguish, and
+it has not been settled with a known-good reader. Anyone fitting a card to their own board
+should expect it to work and tell me if it does.
 
 ### The case
 
