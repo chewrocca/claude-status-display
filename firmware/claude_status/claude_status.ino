@@ -408,7 +408,7 @@ void gaugesCompact(int x, int y, bool skipCtx, bool skipH5, bool skipWk) {
 void sparkline(int x, int y, int w, int h) {
   cv->drawFastHLine(x, y + h, w, C_PANEL);
   for (int i = 0; i <= w; i += 6)                       // the even-burn reference
-    cv->drawPixel(x + i, y + h - (i * h) / w, C_PANEL);
+    cv->drawPixel(x + i, y + h - (i * h) / w, C_DIM);      // dim, not panel: panel was invisible on the real screen
   if (S.nhist < 2) {
     textAt(x, y + h / 2 - 8, "collecting...", 2, C_PANEL);
     return;
