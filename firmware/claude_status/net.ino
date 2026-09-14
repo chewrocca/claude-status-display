@@ -62,6 +62,14 @@ const char *clockStr() {
   return b;
 }
 
+// The address the router handed us, for the About page. Static buffer: no heap churn on a
+// page that redraws continuously, and 16 bytes holds the longest dotted quad plus its NUL.
+const char *netIp() {
+  static char b[16];
+  strlcpy(b, WiFi.localIP().toString().c_str(), sizeof b);
+  return b;
+}
+
 // --- HTTP server -------------------------------------------------------------------------
 void httpStatus() {
   if (!tokenOk(http.header("X-Token"))) { http.send(401, "application/json", "{\"err\":\"token\"}"); return; }

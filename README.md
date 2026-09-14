@@ -197,6 +197,9 @@ uv run --script host/provision.py --forget   # wipe credentials from the board
 The daemon pins itself to the board's numeric IP after first contact, because mDNS
 resolution of `claude-status.local` can take five seconds on a cold cache.
 
+The About page shows the address the router handed out, so you can read it off the screen
+instead of going looking for it. It reads "no wifi" when the board isn't on the network.
+
 Once it's on the network, the board is `http://claude-status.local` with a small status
 page. The daemon pushes to it automatically whenever the USB serial port is absent, using
 the token in `~/.claude/esp32-status/token`. The board also fetches the Claude status page

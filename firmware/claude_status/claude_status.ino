@@ -97,6 +97,7 @@ struct Status {
 } S;
 
 const char *clockStr();
+const char *netIp();
 void sdBegin(); void sdLoop(); int sdLoadHistory(uint8_t *out, int maxPoints);
 extern bool sdUp; extern uint32_t sdSizeMB;
 void netBegin(); void netLoop(); void netForcePoll(); void netCommand(JsonDocument &doc); void netReport(); void bleNotifyState();
@@ -704,10 +705,15 @@ void pageAbout() {
   if (sdUp) snprintf(b, sizeof b, "fw %s  sd %luG", FW_VERSION, (unsigned long)((sdSizeMB + 512) / 1024));
   else      snprintf(b, sizeof b, "fw %s", FW_VERSION);
   textAt(lx, ly, b, 2, C_DIM);
-  snprintf(b, sizeof b, "%s %s", clockStr(), wifiUp ? "wifi" : "usb"); textAt(lx, ly + 20, b, 2, C_DIM);
-  snprintf(b, sizeof b, "up %lum", millis() / 60000UL);       textAt(lx, ly + 40, b, 2, C_DIM);
-  textAt(lx, ly + 60, nightMode() ? "night mode" : "day mode", 2, C_DIM);
-  snprintf(b, sizeof b, "sessions %d", S.n);                  textAt(lx, ly + 80, b, 2, C_DIM);
+  // Clock and uptime share a row so the address below can have one to itself.
+  snprintf(b, sizeof b, "%s up %lum", clockStr(), millis() / 60000UL);
+  textAt(lx, ly + 20, b, 2, C_DIM);
+  textAt(lx, ly + 40, nightMode() ? "night mode" : "day mode", 2, C_DIM);
+  snprintf(b, sizeof b, "sessions %d", S.n);                  textAt(lx, ly + 60, b, 2, C_DIM);
+  // Last row on purpose: an address is the widest thing on this page, and the button column
+  // beside it stops higher up, so even a 15-character one has the width to itself here.
+  // Drawn bright rather than dim because it is the line you read off the screen and type.
+  textAt(lx, ly + 80, wifiUp ? netIp() : "no wifi", 2, wifiUp ? C_TXT : C_DIM);
   if (!landscape()) cv->drawFastHLine(6, 170, W() - 12, C_PANEL);
   textAt(rx0, ry, "BOOT BUTTON", 2, C_TXT);
   textAt(rx0, ry + 22, "press: next", 2, C_DIM);
