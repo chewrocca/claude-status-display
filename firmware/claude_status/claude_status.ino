@@ -249,8 +249,14 @@ void bar(int x, int y, int w, int h, int pct, uint16_t col, const char *inside) 
   int fw = pct > 0 ? w * min(pct, 100) / 100 : 0;
   if (fw) cv->fillRoundRect(x, y, max(fw, 6), h, 4, col);
   if (inside && inside[0]) {
+    // The reset time has to read on the dark track, on the coloured fill, and when the
+    // fill ends halfway through it. White on the track, black once the fill has fully
+    // passed it, and a dark backing while the fill edge is somewhere inside the text.
     int tx = x + w - 4 - textW(inside, 2);
-    uint16_t tc = (x + fw > tx + 4) ? 0x0000 : C_DIM;
+    int fillEnd = x + fw;
+    uint16_t tc = C_TXT;
+    if (fillEnd >= x + w - 2)  tc = 0x0000;
+    else if (fillEnd > tx - 4) cv->fillRoundRect(tx - 4, y, x + w - (tx - 4), h, 4, C_PANEL);
     textAt(tx, y + (h - 16) / 2 + 1, inside, 2, tc);
   }
 }
@@ -330,22 +336,26 @@ void bandLandscape() {                     // 112 x 172 down the left side
   drawSprite((LB_W - SPRITE_SZ) / 2, spriteY, spr);
   if (b.l2[0]) { textCenteredIn(0, LB_W, 70, b.l1, 3, b.fg); textCenteredIn(0, LB_W, 96, b.l2, 3, b.fg); }
   else         { textCenteredIn(0, LB_W, 82, b.l1, 3, b.fg); }
-  if (!haveLink && S.ts) {
-    char w[16]; int a = ageSec();
-    if (a < 60)        snprintf(w, sizeof w, "%ds old", a);
-    else if (a < 3600) snprintf(w, sizeof w, "%dm old", a / 60);
-    else               snprintf(w, sizeof w, "%dh old", a / 3600);
-    cv->fillRect(0, 0, LB_W, 18, C_PANEL);
-    textCenteredIn(0, LB_W, 2, w, 2, C_AMBER);         // the feed is gone; the numbers are not
-  } else {
+  bool feedGone = !haveLink && S.ts;                  // the feed is gone; the numbers are not
+  if (!feedGone) {
     if (stale()) textAt(LB_W - 18, 4, "?", 2, C_DIM);
     if (S.n > 1) { char c[6]; snprintf(c, sizeof c, "x%d", S.n); textAt(4, 4, c, 2, b.fg); }
   }
   uint16_t sub = b.fg == 0x0000 ? 0x0000 : C_DIM;
   char s[16];
-  if (S.model[0]) marquee(2, H() - 44, LB_W - 4, S.model, 2, sub, b.bg, LB_W);
+  if (feedGone) {
+    // The age takes the model row rather than a strip across the top: the sprite is
+    // opaque from its first row, so anything drawn above it cut the helmet off.
+    char w[16]; int a = ageSec();
+    if (a < 60)        snprintf(w, sizeof w, "%ds old", a);
+    else if (a < 3600) snprintf(w, sizeof w, "%dm old", a / 60);
+    else               snprintf(w, sizeof w, "%dh old", a / 3600);
+    textCenteredIn(0, LB_W, H() - 44, w, 2, C_AMBER);
+  } else if (S.model[0]) {
+    marquee(2, H() - 44, LB_W - 4, S.model, 2, sub, b.bg, LB_W);
+  }
   int a = ageSec();
-  bool showAge = a >= 60;                       // fresh data needs no timestamp
+  bool showAge = a >= 60 && !feedGone;          // fresh data needs no timestamp; the amber row already carries it
   s[0] = 0;
   if (showAge) {
     if (a < 3600) snprintf(s, sizeof s, "%dm", a / 60); else snprintf(s, sizeof s, "%dh", a / 3600);

@@ -137,7 +137,7 @@ newest session, the attention files, and the status page, then writes one JSON l
 
 - **Losing the daemon costs freshness, not data.** When nothing is pushing, the last known
   numbers stay on screen, the band freezes to a muted version of the last state and stops
-  animating, and an amber age appears above it ("25s old"). The clock and the API health row
+  animating, and an amber age replaces the model row ("25s old"). The clock and the API health row
   keep updating, because the board fetches both itself. NO LINK is shown only when the board
   has never received anything at all.
 
