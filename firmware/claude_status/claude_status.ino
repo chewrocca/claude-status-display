@@ -48,6 +48,7 @@
 #define DONE_REST_MS      (15UL * 60UL * 1000UL)  // an unanswered turn insists this long, then rests
 #define SCREEN_OFF_MS     (10UL * 60UL * 1000UL)  // after 10 min at rest the panel goes dark
 #define NOLINK_DIM_MS     (2UL * 60UL * 1000UL)
+#define HISTORY_POINTS    32       // must match HISTORY_POINTS in claude_status_daemon.py
 #define BTN_LONG_MS       800UL
 #define BTN_ROTATE_MS     3000UL
 
@@ -87,6 +88,7 @@ struct Status {
   bool lim = false, night = false, cw = false;
   int dur = 0, api = 0, la = 0, lr = 0, tin = 0, tout = 0, ch = -1;
   int pace = 999, quiet = 70, nhist = 0;
+  bool histAnchored = false;       // true: hist[] is the daemon's week buckets, so the diagonal means something
   uint8_t hist[40];
   struct Sess { char name[14]; char st; int wait; float cost; int ctx; } sess[4];
   int nsess = 0, nrows = 0, nblk = 0, blkw = 0, nwork = 0;
@@ -104,7 +106,7 @@ struct BandStyle { const char *l1, *l2; uint16_t bg, fg; const uint16_t *spr; };
 enum Headline { H_NOLINK, H_IDLE, H_WORKING, H_DONE, H_NEEDS, H_LIMITED, H_OUTAGE };
 enum Page { PG_OVERVIEW, PG_SESSIONS, PG_BURN, PG_LIMITS, PG_STATS, PG_API, PG_ABOUT, PG_COUNT };
 
-char rx[1024]; uint16_t rxLen = 0;
+char rx[1024]; uint16_t rxLen = 0; bool rxSkip = false;
 unsigned long lastRx = 0, rxAt = 0, stateChangedAt = 0;
 unsigned long lastDirChange = 0, pageChangedAt = 0, toastAt = 0, lastDraw = 0;
 bool haveLink = false, dirty = true, ack = false, manualNight = false, nightOverride = false;
@@ -420,17 +422,31 @@ void gaugesCompact(int x, int y, bool skipCtx, bool skipH5, bool skipWk) {
 
 // Weekly burn against a linear pace. The diagonal is where you would be if you spent the
 // week evenly; the line is where you actually are. Above the diagonal means burning fast.
+//
+// The x axis is the week, not the sample count. The daemon buckets the week into
+// HISTORY_POINTS slots and stops at now, so nhist is how far into the week we are, and a
+// point belongs at i/HISTORY_POINTS across. Dividing by nhist instead stretched a partial
+// week across the full width, which put every point's x where a later point belonged and
+// left the line below the diagonal no matter how hot the week was actually running.
+//
+// Samples read off the card are raw five-minute rows with no week anchor, because the
+// board does not know where the week starts until a payload arrives. Those get the old
+// stretched drawing and no diagonal, since there is nothing to compare them against.
 void sparkline(int x, int y, int w, int h) {
   cv->drawFastHLine(x, y + h, w, C_PANEL);
-  for (int i = 0; i <= w; i += 6)                       // the even-burn reference
-    cv->drawPixel(x + i, y + h - (i * h) / w, C_DIM);      // dim, not panel: panel was invisible on the real screen
+  if (S.histAnchored)
+    for (int i = 0; i <= w; i += 6)                     // the even-burn reference
+      cv->drawPixel(x + i, y + h - (i * h) / w, C_DIM);
   if (S.nhist < 2) {
     textAt(x, y + h / 2 - 8, "collecting...", 2, C_PANEL);
     return;
   }
+  int span = (S.histAnchored ? HISTORY_POINTS : S.nhist) - 1;
+  if (span < 1) span = 1;
   int prevX = x, prevY = y + h - (S.hist[0] * h) / 100;
   for (int i = 1; i < S.nhist; i++) {
-    int px = x + (i * w) / (S.nhist - 1);
+    int px = x + (i * w) / span;
+    if (px > x + w) px = x + w;                         // a longer series than the grid cannot run off the page
     int py = y + h - (S.hist[i] * h) / 100;
     cv->drawLine(prevX, prevY, px, py, dimIf(pctColor(S.hist[i])));
     prevX = px; prevY = py;
@@ -541,7 +557,9 @@ void pageBurn() {
   int y = land ? 88 : 100;
   int h = land ? H() - y - 26 : 120;
   sparkline(6, y, W() - 12, h);
-  textAt(6, H() - 20, S.nhist >= 2 ? "dotted = even spend" : "sampling every 5 min", 2, C_DIM);
+  textAt(6, H() - 20, S.nhist < 2 ? "sampling every 5 min"
+                      : S.histAnchored ? "dotted = even spend"
+                                       : "recent trend, no week anchor", 2, C_DIM);
 }
 
 uint16_t sessColor(char st) {
@@ -997,6 +1015,7 @@ void handleLine(const char *line) {
     if (S.nhist >= (int)sizeof S.hist) break;
     S.hist[S.nhist++] = (uint8_t)constrain(v.as<int>(), 0, 100);
   }
+  S.histAnchored = S.nhist > 0;
   copyStr(S.ver, sizeof S.ver, doc["ver"], "");
   copyStr(S.cwin, sizeof S.cwin, doc["cwin"], "");
   bool hostNight = doc["night"] | false;
@@ -1031,21 +1050,28 @@ void handleLine(const char *line) {
 // Reads whole lines into a fixed buffer, so there is no heap churn over weeks of uptime.
 // An over-long line is dropped at the newline rather than truncated, so a partial payload
 // can never be parsed as if it were complete.
+//
+// Every line the host sends is a JSON object, so a line that does not open with '{' is one
+// we joined partway through and there is no point collecting it. That happens on every
+// boot: the host keeps writing while the board comes up, so whatever was in flight when
+// the app started reads as a fragment, and parsing it was the source of a spurious
+// {"err":"json"} after each connect. Skip to the next newline and pick up from there.
 void drainSerial() {
   while (Serial.available()) {
     char c = Serial.read();
     if (c == '\n') {
-      if (rxLen && rxLen < sizeof rx) {
+      if (rxLen) {
         rx[rxLen] = 0;
         strlcpy(transport, "usb", sizeof transport);
         handleLine(rx);
       }
-      rxLen = 0;
-    } else if (rxLen < sizeof rx - 1) {
-      rx[rxLen++] = c;
-    } else {
-      rxLen = sizeof rx;           // too long: mark and discard at the newline
+      rxLen = 0; rxSkip = false;
+      continue;
     }
+    if (rxSkip || c == '\r') continue;
+    if (rxLen == 0 && c != '{') { rxSkip = true; continue; }   // joined mid-line
+    if (rxLen < sizeof rx - 1) rx[rxLen++] = c;
+    else { rxLen = 0; rxSkip = true; }                         // too long: drop at the newline
   }
 }
 
@@ -1071,7 +1097,7 @@ void setup() {
   tft.invertDisplay(true);
   applyRotation();
   sdBegin();
-  if (sdUp && S.nhist == 0) S.nhist = sdLoadHistory(S.hist, sizeof S.hist);
+  if (sdUp && S.nhist == 0) { S.nhist = sdLoadHistory(S.hist, sizeof S.hist); S.histAnchored = false; }
   netBegin();
   stateChangedAt = millis();
   render();

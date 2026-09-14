@@ -264,7 +264,8 @@ ships SD support and uses it for one thing: a history sample every five minutes,
 `/hist.csv` as `epoch,week%,5h%,ctx%,state`. The weekly-burn page is seeded from that file at
 boot, so the curve is already populated before the daemon connects, and it survives the Mac
 going to sleep. Host-supplied history overwrites it as soon as a payload arrives, because the
-host knows where the week boundary is. Running without a card is fine; the firmware retries the
+host knows where the week boundary is. Until it does, the card's samples are drawn without the
+even-spend diagonal and labeled a recent trend, since the board can't place them in the week. Running without a card is fine; the firmware retries the
 mount every five minutes, so a card you insert later starts working without a reset. It mounts
 down a speed ladder from 20 MHz to 400 kHz.
 

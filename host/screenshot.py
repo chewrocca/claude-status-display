@@ -26,7 +26,10 @@ def demo_payload():
             "wk": 53, "wkr": "Mon 9:00am", "wkm": 2408, "lim": False, "model": "Fable 5.1",
             "dir": "esp32_project", "eff": "high", "cost": 9.87, "dur": 58, "api": 21, "la": 412, "lr": 96, "tin": 1090, "tout": 31, "ch": 94, "cw": True, "ver": "2.1.270",
             "quiet": 70, "pace": 14,
-            "hist": [0,2,5,9,14,18,21,25,30,33,36,38,41,44,48,52,55,57,59,61,63,64], "st": "working", "ts": int(time.time()), "age": 3}
+            # 13 of the daemon's 32 weekly buckets, so the week is ~40% gone, ending at the
+            # same 53% the WEEK gauge shows. That puts the last point 14 points above the
+            # even-spend diagonal, which is what "pace": 14 claims.
+            "hist": [0,4,8,13,17,22,27,31,36,40,45,49,53], "st": "working", "ts": int(time.time()), "age": 3}
 
 
 def live_payload():
