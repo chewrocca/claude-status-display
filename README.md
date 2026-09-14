@@ -101,12 +101,11 @@ newest session, the attention files, and the status page, then writes one JSON l
   strip on the band means a major API incident while some other state is showing.
 - The CTX gauge shows its window size (`CTX 1M`), because a percentage means different
   things at 1M and at 200K. The Stats page spells it out as "ctx 82% of 1M".
-- **The gauges stay quiet until they matter.** Below 70% all three collapse to one dim line,
-  because nothing is decided at 31%. The space goes to the number that actually changes
-  behavior: weekly burn against an even pace, plus a sparkline of the current week with a
-  dotted reference showing where an even burn would put you. Above the diagonal means you're
-  running hot. Once a gauge crosses 70% it expands to a full bar with its reset time, while
-  the others stay on the dim line. Reset times are 12-hour America/Chicago.
+- **Gauges below 70% collapse to one dim line.** Low numbers don't need a full bar. The
+  space goes to weekly burn against an even pace, plus a sparkline of the current week with
+  a dotted reference showing where an even burn would put you. Above the diagonal means
+  you're running hot. Once a gauge crosses 70% it expands to a full bar with its reset time,
+  while the others stay on the dim line. Reset times are 12-hour America/Chicago.
 - The bottom row of the overview names the session being followed (it scrolls if too long):
   the session name if you set one with /rename, otherwise the project folder. The daemon
   follows whichever Claude Code session updated most recently, and the board flashes the new
@@ -129,11 +128,9 @@ newest session, the attention files, and the status page, then writes one JSON l
   amber on the API page.
 - Stale data (more than 10 minutes old) is drawn dim with a "?" in the band.
 - **The Sessions page** has one row per live session, sorted so the top row is the thing to
-  do next. Blocked sessions come first, longest wait first, because the one that's been
-  waiting eight minutes is the one you forgot about. A session that finished over 30 minutes
-  ago reads "over" rather than "ready"; that's a graveyard entry, not a to-do. The color bar
-  carries the state, and the LED pulses once per blocked session, so two pulses means two
-  things are waiting on you.
+  do next. Blocked sessions come first, longest wait first. A session that finished over 30
+  minutes ago reads "over" instead of "ready". The color bar carries the state, and the LED
+  pulses once per blocked session, so two pulses means two things are waiting on you.
 - **Losing the daemon costs freshness, not data.** When nothing is pushing, the last known
   numbers stay on screen, the band freezes to a muted version of the last state and stops
   animating, and an amber age replaces the model row ("25s old"). The clock and the API
@@ -292,9 +289,8 @@ safe. Go slowly, start with one corner, and expect the USB-C end to be the stubb
 The bezel also overlaps the panel by a few pixels, which is why the firmware keeps text
 clear of the right edge.
 
-Print it in a light or translucent filament. The LED sits under the board and lights the
-case from inside, which is most of the charm, and an opaque print loses that. Make sure the
-BOOT button stays reachable, since it's the only control.
+Print it in a light or translucent filament so the LED under the board can light the case
+from inside. Make sure the BOOT button stays reachable, since it's the only control.
 
 Untested alternatives: a [snap-on lid enclosure](https://www.printables.com/model/1365867-esp32-c6-147inch-display-enclosure)
 and a [reference CAD model of the board](https://www.printables.com/model/1633740-esp32-c6-lcd-147-reference-cad-model)
