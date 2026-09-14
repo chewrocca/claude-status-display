@@ -108,8 +108,15 @@ With several sessions open, the rule that works:
   without ever mirroring its status line. Build the session list from the union of both
   sources, or a session sets the headline while the page that explains the headline cannot
   see it. Name it from the hook's `cwd` when there is no status line payload.
-- **Numbers follow the most recent writer.** Context and cost are per session; name which
-  session is being shown, or the number is a lie.
+- **Numbers belong to the session that owns the headline, not to the most recent writer.**
+  Context and cost are per session. Not every window mirrors a status line: one running in
+  the desktop app fires hooks but never writes one, because that surface draws its own usage
+  panel instead of running a status line command. Borrowing the newest other window's
+  context and cost and captioning them with this window's name reports one session's work as
+  another's. Show the headline session's own numbers, or show none and still name the window.
+- **Rate limits may be borrowed, briefly.** They are account wide, so a payload from any
+  window is true for every window. A payload from hours ago is not true about anything, so
+  age out a borrowed one the same way you age out any other reading.
 - **Rate limits are account-wide.** They do not vary by session.
 - **Prune stale files.** A session killed without `SessionEnd` leaves a `working` or `done`
   file behind. Ignore anything older than ~30 minutes or a dead session pins your display.

@@ -54,6 +54,7 @@ RANK = {"none": 0, "minor": 1, "major": 2, "critical": 3, "unknown": 0}
 HEARTBEAT_S = 3
 SESSION_TTL_S = 24 * 3600
 IDLE_AFTER_S = 30 * 60
+NUMBERS_MAX_AGE_S = 600   # rate limits borrowed from another window go stale like anything else
 NIGHT_START, NIGHT_END = 22, 7
 # Display timezone; DST transitions come from the system zone database.
 TZ = ZoneInfo(os.environ.get("CLAUDE_STATUS_TZ", "America/Chicago"))
@@ -103,7 +104,7 @@ def attention():
     merely finished is information, and ranking it above live work meant one window you had
     walked away from held the band amber while another was visibly working.
     """
-    states, newest, now = [], 0, time.time()
+    entries, now = [], time.time()
     for f, m in fresh_files(ATTENTION):
         d = read_json(f) or {}
         try:
@@ -112,12 +113,30 @@ def attention():
             ts = m
         if now - max(m, ts) > IDLE_AFTER_S:   # session died without SessionEnd
             continue
-        states.append(d.get("state") or "idle")   # a truncated/garbled file must not shout
-        newest = max(newest, ts)
+        entries.append((os.path.splitext(os.path.basename(f))[0],
+                        d.get("state") or "idle",   # a truncated/garbled file must not shout
+                        ts, d.get("cwd") or ""))
+    newest = max((e[2] for e in entries), default=0)
     for s in ("needs_input", "working", "done"):
-        if s in states:
-            return s, newest, len(states)
-    return "idle", newest, len(states)
+        owners = [e for e in entries if e[1] == s]
+        if owners:
+            o = max(owners, key=lambda e: e[2])     # most recent of that state owns the headline
+            return s, newest, len(entries), o[0], o[3]
+    return "idle", newest, len(entries), "", ""
+
+
+def session_for(sid):
+    """The status line payload of one specific session, or (None, 0) if it never wrote one."""
+    if not sid:
+        return None, 0
+    f = os.path.join(SESSIONS, sid + ".json")
+    try:
+        m = os.path.getmtime(f)
+    except OSError:
+        return None, 0
+    if time.time() - m > SESSION_TTL_S:
+        return None, 0
+    return read_json(f), m
 
 
 def fmt_reset(epoch, with_day=False):
@@ -357,32 +376,46 @@ def record_history(weekly_pct, weekly_reset):
 
 
 def build_payload(poller):
-    sl, mtime = latest_session()
-    state, att_ts, n = attention()
     now = time.time()
+    state, att_ts, n, owner, owner_cwd = attention()
+    # The window that owns the headline owns the numbers. A session running in the desktop
+    # app fires hooks but never mirrors a status line, because that surface draws its own
+    # usage panel rather than running one. Taking the newest *other* window's context and
+    # cost and showing them under this one's name was the device reporting one session's
+    # work as another's, which is worse than reporting nothing.
+    sl, mtime = session_for(owner)
+    mine = sl is not None
+    if not mine:
+        # Rate limits are account wide, so a recent payload from any window is still true
+        # here. Per-session numbers are not, and a stale donor is not true about anything.
+        donor, donor_m = latest_session()
+        sl, mtime = (donor, donor_m) if donor and now - donor_m <= NUMBERS_MAX_AGE_S else (None, 0)
     local = datetime.now(TZ)
     p = {
         "out": poller.indicator, "inc": poller.incident, "comp": poller.comp, "other": poller.other, "n": n,
         "night": local.hour >= NIGHT_START or local.hour < NIGHT_END,
         "hm": fmt_reset(now),
     }
-    ts = max(mtime, att_ts)
+    ts = max(mtime, att_ts) if mine else att_ts
     if sl:
         rl = sl.get("rate_limits") or {}
         h5, h5r, h5m = limit(rl.get("five_hour") or {}, False)
         wk, wkr, wkm = limit(rl.get("seven_day") or {}, True)
-        p.update({
-            "ctx": pct((sl.get("context_window") or {}).get("used_percentage")),
-            "cwin": window_label((sl.get("context_window") or {}).get("context_window_size")),
+        p.update({                                  # account wide: true whoever reported it
             "h5": h5, "h5r": h5r, "h5m": h5m,
             "wk": wk, "wkr": wkr, "wkm": wkm,
             "lim": h5 >= 100 or wk >= 100,
-            "model": short_model((sl.get("model") or {}).get("display_name")),
-            "eff": ((sl.get("effort") or {}).get("level") or "")[:10],
-            "dir": (sl.get("session_name") or os.path.basename((sl.get("workspace") or {}).get("current_dir") or ""))[:20],
-            "cost": round(float((sl.get("cost") or {}).get("total_cost_usd") or 0), 2),
-            **session_stats(sl),
         })
+        if mine:                                    # per session: only from the session itself
+            p.update({
+                "ctx": pct((sl.get("context_window") or {}).get("used_percentage")),
+                "cwin": window_label((sl.get("context_window") or {}).get("context_window_size")),
+                "model": short_model((sl.get("model") or {}).get("display_name")),
+                "eff": ((sl.get("effort") or {}).get("level") or "")[:10],
+                "dir": (sl.get("session_name") or os.path.basename((sl.get("workspace") or {}).get("current_dir") or ""))[:20],
+                "cost": round(float((sl.get("cost") or {}).get("total_cost_usd") or 0), 2),
+                **session_stats(sl),
+            })
         try:
             reset_at = float((rl.get("seven_day") or {}).get("resets_at") or 0)
         except (TypeError, ValueError):
@@ -394,6 +427,11 @@ def build_payload(poller):
             if pace is not None:
                 p["pace"] = pace
         p["quiet"] = QUIET_BELOW
+    if not mine:
+        # Name the window actually driving the display, and leave its numbers empty rather
+        # than borrowed. The gauges draw "--" for a negative percentage.
+        p["dir"] = os.path.basename(owner_cwd)[:20]
+        p["ctx"] = -1
     rows = session_rows()
     if rows:
         p["sess"] = rows[:MAX_SESSIONS]
