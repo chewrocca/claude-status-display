@@ -54,7 +54,6 @@ RANK = {"none": 0, "minor": 1, "major": 2, "critical": 3, "unknown": 0}
 HEARTBEAT_S = 3
 SESSION_TTL_S = 24 * 3600
 IDLE_AFTER_S = 30 * 60
-NUMBERS_MAX_AGE_S = 600   # rate limits borrowed from another window go stale like anything else
 NIGHT_START, NIGHT_END = 22, 7
 # Display timezone; DST transitions come from the system zone database.
 TZ = ZoneInfo(os.environ.get("CLAUDE_STATUS_TZ", "America/Chicago"))
@@ -400,11 +399,14 @@ def build_payload(poller):
     # work as another's, which is worse than reporting nothing.
     sl, mtime = session_for(owner)
     mine = sl is not None
-    if not mine:
-        # Rate limits are account wide, so a recent payload from any window is still true
-        # here. Per-session numbers are not, and a stale donor is not true about anything.
-        donor, donor_m = latest_session()
-        sl, mtime = (donor, donor_m) if donor and now - donor_m <= NUMBERS_MAX_AGE_S else (None, 0)
+    if not mine and not owner:
+        # Nothing is running at all. There is no other session for these to be confused
+        # with, and the last known weekly burn is worth seeing on an idle desk.
+        sl, mtime = latest_session()
+    # A headline session that never writes a payload gets nothing, not even the limits.
+    # They are account wide and so not wrong in kind, only as of whenever some other window
+    # last asked. That distinction does not survive being drawn as a live gauge beside a
+    # context bar reading "--", so the whole row goes quiet instead.
     local = datetime.now(TZ)
     p = {
         "out": poller.indicator, "inc": poller.incident, "comp": poller.comp, "other": poller.other, "n": n,
@@ -445,8 +447,12 @@ def build_payload(poller):
     if not mine:
         # Name the window actually driving the display, and leave its numbers empty rather
         # than borrowed. The gauges draw "--" for a negative percentage.
-        p["dir"] = os.path.basename(owner_cwd)[:20]
         p["ctx"] = -1
+        if owner_cwd:
+            p["dir"] = os.path.basename(owner_cwd)[:20]
+        elif sl:                                     # idle desk: name the last window seen
+            p["dir"] = (sl.get("session_name")
+                        or os.path.basename((sl.get("workspace") or {}).get("current_dir") or ""))[:20]
     rows = session_rows()
     if rows:
         p["sess"] = rows[:MAX_SESSIONS]

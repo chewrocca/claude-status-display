@@ -114,9 +114,12 @@ With several sessions open, the rule that works:
   panel instead of running a status line command. Borrowing the newest other window's
   context and cost and captioning them with this window's name reports one session's work as
   another's. Show the headline session's own numbers, or show none and still name the window.
-- **Rate limits may be borrowed, briefly.** They are account wide, so a payload from any
-  window is true for every window. A payload from hours ago is not true about anything, so
-  age out a borrowed one the same way you age out any other reading.
+- **Do not borrow rate limits either.** They are account wide, so a reading from another
+  window is not wrong in kind, only as of whenever that window last asked. That distinction
+  does not survive being drawn as a live gauge beside a context bar reading "--": the row
+  looks current and is not. A headline session with no payload shows nothing at all. The one
+  exception is an idle desk, where no session is running and there is nothing for the last
+  known numbers to be confused with.
 - **Rate limits are account-wide.** They do not vary by session.
 - **Prune stale files.** A session killed without `SessionEnd` leaves a `working` or `done`
   file behind. Ignore anything older than ~30 minutes or a dead session pins your display.
