@@ -48,6 +48,7 @@
 #define DONE_REST_MS      (15UL * 60UL * 1000UL)  // an unanswered turn insists this long, then rests
 #define SCREEN_OFF_MS     (10UL * 60UL * 1000UL)  // after 10 min at rest the panel goes dark
 #define NOLINK_DIM_MS     (2UL * 60UL * 1000UL)
+#define CACHE_WARN_MIN    10       // prompt cache this close to expiry is worth saying out loud
 #define HISTORY_POINTS    32       // must match HISTORY_POINTS in claude_status_daemon.py
 #define BTN_LONG_MS       800UL
 #define BTN_ROTATE_MS     3000UL
@@ -92,6 +93,7 @@ struct Status {
   uint8_t hist[40];
   struct Sess { char name[14]; char st; int wait; float cost; int ctx; } sess[4];
   int nsess = 0, nrows = 0, nblk = 0, blkw = 0, nwork = 0, nrdy = 0;
+  int cxm = -1;                    // minutes until the prompt cache expires, -1 unknown
   char ver[10] = "", cwin[8] = "";
   long ts = 0;
 } S;
@@ -109,6 +111,10 @@ enum Page { PG_OVERVIEW, PG_SESSIONS, PG_BURN, PG_LIMITS, PG_STATS, PG_API, PG_A
 
 char rx[1024]; uint16_t rxLen = 0; bool rxSkip = false;
 unsigned long lastRx = 0, rxAt = 0, stateChangedAt = 0;
+// "act as though we have been resting long enough", for the sleep and cycle commands. It
+// cannot be expressed by winding stateChangedAt back: millis() is under five minutes for
+// the first five minutes of a boot, so the subtraction wrapped and the command did nothing.
+bool forceSaver = false, forceCycle = false;
 unsigned long lastDirChange = 0, pageChangedAt = 0, toastAt = 0, lastDraw = 0;
 bool haveLink = false, dirty = true, ack = false, manualNight = false, nightOverride = false;
 bool hostNightLast = false;
@@ -648,7 +654,14 @@ void pageStats() {                                   // the useful part of /usag
     textAt(x, 78, "CACHE", 2, C_DIM);
     if (S.ch >= 0) snprintf(b, sizeof b, "%d%% hits", S.ch); else strcpy(b, "no data");
     textAt(x, 98, b, 2, S.ch >= 70 ? C_GREEN : S.ch >= 0 ? C_AMBER : C_DIM);
-    textAt(x, 118, S.cw ? "warm" : "cold", 2, S.cw ? C_GREEN : C_DIM);
+    // "warm" on its own says nothing about how long it stays that way. A rebuild is the
+    // avoidable cost here, so show the countdown and go amber when it is close.
+    if (S.cw && S.cxm >= 0) {
+      snprintf(b, sizeof b, "warm %dm", S.cxm);
+      textAt(x, 118, b, 2, S.cxm <= CACHE_WARN_MIN ? C_AMBER : C_GREEN);
+    } else {
+      textAt(x, 118, S.cw ? "warm" : "cold", 2, S.cw ? C_GREEN : C_DIM);
+    }
     if (S.cwin[0]) snprintf(b, sizeof b, "ctx %d%% of %s  cc %s", S.ctx < 0 ? 0 : S.ctx, S.cwin, S.ver);
     else           snprintf(b, sizeof b, "ctx %d%%  cc %s", S.ctx < 0 ? 0 : S.ctx, S.ver);
     textAt(6, H() - 20, b, 2, C_DIM);
@@ -752,11 +765,11 @@ bool restingState() {
   if (S.nwork > 0)     return false;                 // another window is still running
   return head == H_IDLE || head == H_NOLINK;
 }
-bool saverActive() { return restingState() && !toast[0] && !(!haveLink && S.ts) && millis() - stateChangedAt > SAVER_MS; }
+bool saverActive() { return restingState() && !toast[0] && !(!haveLink && S.ts) && (forceSaver || millis() - stateChangedAt > SAVER_MS); }
 // Dark, not asleep. The LED keeps carrying the state, which is the part that reads across a
 // room anyway; the panel is only worth lighting for someone standing in front of it.
 bool screenOff() { return restingState() && !toast[0] && millis() - stateChangedAt > SCREEN_OFF_MS; }
-bool cycling() { return restingState() && !toast[0] && !saverActive() && millis() - stateChangedAt > CYCLE_MS; }
+bool cycling() { return restingState() && !toast[0] && !saverActive() && (forceCycle || millis() - stateChangedAt > CYCLE_MS); }
 
 void initStars() {
   for (int i = 0; i < NSTARS; i++) {
@@ -806,7 +819,15 @@ void pageSaver() {
   const char *word = head == H_DONE ? "ready" : head == H_NOLINK ? "no link" : "idle";
   textAt(6, 6, word, 2, head == H_DONE ? C_AMBER : C_DIM);
   char b[40];
-  snprintf(b, sizeof b, "WEEK %d%%   5HR %d%%", S.wk < 0 ? 0 : S.wk, S.h5 < 0 ? 0 : S.h5);
+  // Only while it is about to cost something. The limits line closes up to make room,
+  // because at full spacing the two run into each other with no gap at all.
+  bool cacheWarn = S.cw && S.cxm >= 0 && S.cxm <= CACHE_WARN_MIN;
+  if (cacheWarn) {
+    char c[14]; snprintf(c, sizeof c, "cache %dm", S.cxm);
+    textRight(H() - 20, c, 2, C_AMBER);
+  }
+  snprintf(b, sizeof b, cacheWarn ? "WEEK %d%% 5HR %d%%" : "WEEK %d%%   5HR %d%%",
+           S.wk < 0 ? 0 : S.wk, S.h5 < 0 ? 0 : S.h5);
   textAt(6, H() - 20, b, 2, C_DIM);
   if (S.model[0]) textAt(W() - 6 - textW(S.model, 2), 32, S.model, 2, C_DIM);
 }
@@ -936,7 +957,7 @@ void applyRotation() {
 
 void shortPress() {
   if (screenDimmed() || saverActive() || cycling()) {                     // wake only
-    stateChangedAt = millis(); starsInit = false; page = PG_OVERVIEW; dirty = true; return;
+    stateChangedAt = millis(); forceSaver = forceCycle = false; starsInit = false; page = PG_OVERVIEW; dirty = true; return;
   }
   if (alertActive()) { ack = true; showToast("OK"); return; }
   page = (Page)((page + 1) % PG_COUNT);
@@ -988,8 +1009,8 @@ void handleCommand(const char *cmd) {
   } else if (!strcmp(cmd, "tap")) { shortPress(); }
   else if (!strcmp(cmd, "hold")) { nightOverride = true; manualNight = !nightMode(); showToast(manualNight ? "NIGHT" : "DAY"); }
   else if (!strcmp(cmd, "rotate")) { rotation = (rotation + 1) % 4; prefs.putUChar("rot2", rotation); applyRotation(); showToast("TURN"); }
-  else if (!strcmp(cmd, "sleep")) { stateChangedAt = millis() - SAVER_MS - 1000UL; }
-  else if (!strcmp(cmd, "cycle")) { stateChangedAt = millis() - CYCLE_MS - 1000UL; pageChangedAt = 0; }
+  else if (!strcmp(cmd, "sleep")) { forceSaver = true; }
+  else if (!strcmp(cmd, "cycle")) { forceCycle = true; pageChangedAt = 0; }
   dirty = true;
 }
 
@@ -1013,6 +1034,7 @@ void handleLine(const char *line) {
   S.nblk  = doc["nblk"]  | 0;
   S.nwork = doc["nwork"] | 0;
   S.nrdy  = doc["nrdy"]  | 0;
+  S.cxm   = doc["cxm"]   | -1;
   S.blkw  = doc["blkw"]  | 0;
   S.nrows = 0;
   for (JsonObjectConst r : doc["sess"].as<JsonArrayConst>()) {
@@ -1128,7 +1150,7 @@ void loop() {
 
   head = computeHeadline();
   if (head != lastHead) {
-    lastHead = head; stateChangedAt = millis(); ack = false; dirty = true;
+    lastHead = head; stateChangedAt = millis(); forceSaver = forceCycle = false; ack = false; dirty = true;
     if (head == H_DONE || head == H_NEEDS || head == H_LIMITED || head == H_OUTAGE) page = PG_OVERVIEW;
   }
   if (cycling()) {

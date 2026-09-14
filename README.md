@@ -18,7 +18,7 @@ doesn't need to stay tethered to the laptop.
 | ![Overview](docs/screens/overview.png) | ![Sessions](docs/screens/sessions.png) |
 | **Weekly burn** is spend against an even pace. Above the dotted line means you're running hot. | **Limits** shows both windows with exact reset times. |
 | ![Weekly burn](docs/screens/burn.png) | ![Limits](docs/screens/limits.png) |
-| **Stats** is the useful part of `/usage`, including prompt-cache hit rate. | **API** shows Claude API and Claude Code health, with incidents in amber. |
+| **Stats** is the useful part of `/usage`, including prompt-cache hit rate and how long the cache stays warm. | **API** shows Claude API and Claude Code health, with incidents in amber. |
 | ![Stats](docs/screens/stats.png) | ![API status](docs/screens/api.png) |
 
 You don't need this exact board. Claude Code already publishes everything shown here
@@ -150,6 +150,9 @@ still reads "ready" in amber, still draws the done mascot, and the LED stays amb
 After 1 minute idle or with no link, the board cycles through the pages every 8 s. After 5
 minutes the screensaver starts: a drifting starfield, the mascot bouncing around the screen,
 the host clock, and the two rate limits along the bottom, with the LED on a slow dim aurora.
+If the prompt cache is within ten minutes of expiring, that shows here too, in amber. This is
+the one screen you are looking at when you have stepped away, which is the only time the cache
+is counting down and the only time a rebuild is still avoidable.
 After 10 minutes the backlight goes off and the board stops painting a panel nobody can see.
 It's dark, not asleep: the LED keeps carrying the state, which is the part that reads across a
 room anyway. Any tap or state change wakes it, and a tap buys another 10 minutes.

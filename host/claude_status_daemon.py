@@ -236,6 +236,17 @@ def short_model(name):
     return n[:12]
 
 
+def cache_minutes(pc):
+    """Whole minutes until the prompt cache expires, 0 if it already has, -1 if unknown."""
+    try:
+        exp = float(pc.get("expires_at") or 0)
+    except (TypeError, ValueError):
+        return -1
+    if not exp:
+        return -1
+    return max(0, int((exp - time.time()) / 60))
+
+
 def session_stats(sl):
     """Session figures for the Stats page (mirrors the useful part of /usage)."""
     c, cw, pc = sl.get("cost") or {}, sl.get("context_window") or {}, sl.get("prompt_cache") or {}
@@ -249,6 +260,10 @@ def session_stats(sl):
         "tin": int(num(cw.get("total_input_tokens")) / 1000), "tout": int(num(cw.get("total_output_tokens")) / 1000),
         "ch": int(num(pc.get("hit_ratio")) * 100) if pc.get("hit_ratio") is not None else -1,
         "cw": bool(pc.get("warm")),
+        # Minutes until the prompt cache expires. Every request pushes it back, so it only
+        # counts down once you stop, which is exactly when the rebuild cost is avoidable
+        # and exactly when nobody is looking at the terminal. -1 when unknown.
+        "cxm": cache_minutes(pc),
         "ver": str(sl.get("version") or "")[:8],
     }
 
