@@ -91,7 +91,7 @@ struct Status {
   bool histAnchored = false;       // true: hist[] is the daemon's week buckets, so the diagonal means something
   uint8_t hist[40];
   struct Sess { char name[14]; char st; int wait; float cost; int ctx; } sess[4];
-  int nsess = 0, nrows = 0, nblk = 0, blkw = 0, nwork = 0;
+  int nsess = 0, nrows = 0, nblk = 0, blkw = 0, nwork = 0, nrdy = 0;
   char ver[10] = "", cwin[8] = "";
   long ts = 0;
 } S;
@@ -327,7 +327,10 @@ void bandPortrait() {                      // 172 x 60 across the top
   if (b.l2[0]) { textAt(74, 14, b.l1, 3, b.fg); textAt(74, 40, b.l2, 3, b.fg); }
   else         { textAt(74, 26, b.l1, 3, b.fg); }
   if (stale()) textAt(W() - 20, 4, "?", 2, C_DIM);
-  if (S.n > 1) { char s[6]; snprintf(s, sizeof s, "x%d", S.n); textRight(56, s, 2, b.fg, 4); }
+  // No spare row at 76 px tall: the session badge goes amber instead, meaning one of
+  // these sessions has finished and is waiting on you.
+  if (S.n > 1) { char s[6]; snprintf(s, sizeof s, "x%d", S.n);
+                 textRight(56, s, 2, (S.nrdy > 0 && head != H_DONE) ? C_AMBER : b.fg, 4); }
 }
 
 #define LB_W 112                           // landscape band width
@@ -344,6 +347,12 @@ void bandLandscape() {                     // 112 x 172 down the left side
   drawSprite((LB_W - SPRITE_SZ) / 2, spriteY, spr);
   if (b.l2[0]) { textCenteredIn(0, LB_W, 70, b.l1, 3, b.fg); textCenteredIn(0, LB_W, 96, b.l2, 3, b.fg); }
   else         { textCenteredIn(0, LB_W, 82, b.l1, 3, b.fg); }
+  // A finished session no longer takes the band from a working one, so say here that one
+  // is waiting. Only under a one-word state: a two-line state already reaches this row.
+  if (!b.l2[0] && S.nrdy > 0 && head != H_DONE) {
+    char r[14]; snprintf(r, sizeof r, "%d ready", S.nrdy);
+    textCenteredIn(0, LB_W, 108, r, 2, C_AMBER);
+  }
   bool feedGone = !haveLink && S.ts;                  // the feed is gone; the numbers are not
   if (!feedGone) {
     if (stale()) textAt(LB_W - 18, 4, "?", 2, C_DIM);
@@ -1003,6 +1012,7 @@ void handleLine(const char *line) {
   S.nsess = doc["nsess"] | 0;
   S.nblk  = doc["nblk"]  | 0;
   S.nwork = doc["nwork"] | 0;
+  S.nrdy  = doc["nrdy"]  | 0;
   S.blkw  = doc["blkw"]  | 0;
   S.nrows = 0;
   for (JsonObjectConst r : doc["sess"].as<JsonArrayConst>()) {

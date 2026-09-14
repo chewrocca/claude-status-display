@@ -98,8 +98,16 @@ jq -n --arg state "$state" --argjson ts "$(date +%s)" '{state:$state, ts:$ts}' >
 
 With several sessions open, the rule that works:
 
-- **Attention is a union.** If *any* live session needs input, say so. Showing only the
-  focused session hides the one that is blocked.
+- **Attention is a union, but only blocked outranks working.** If *any* live session needs
+  input, say so: showing only the focused session hides the one that is blocked. A session
+  that merely *finished* is different. Ranking it above live work means a window you walked
+  away from holds the display at "your turn" while another is visibly working, which reads
+  as the device lying to you. Order is `needs_input > working > done`, and the count of
+  finished sessions rides along so nothing is hidden.
+- **Anything that can set the headline must appear in the list.** A window can fire hooks
+  without ever mirroring its status line. Build the session list from the union of both
+  sources, or a session sets the headline while the page that explains the headline cannot
+  see it. Name it from the hook's `cwd` when there is no status line payload.
 - **Numbers follow the most recent writer.** Context and cost are per session; name which
   session is being shown, or the number is a lie.
 - **Rate limits are account-wide.** They do not vary by session.

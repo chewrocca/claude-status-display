@@ -97,7 +97,12 @@ def latest_session():
 
 
 def attention():
-    """Aggregate per-session attention: any needs_input > any done > any working > idle."""
+    """Aggregate per-session attention: any needs_input > any working > any done > idle.
+
+    Blocked still beats everything, because a permission prompt is a demand. A session that
+    merely finished is information, and ranking it above live work meant one window you had
+    walked away from held the band amber while another was visibly working.
+    """
     states, newest, now = [], 0, time.time()
     for f, m in fresh_files(ATTENTION):
         d = read_json(f) or {}
@@ -109,7 +114,7 @@ def attention():
             continue
         states.append(d.get("state") or "idle")   # a truncated/garbled file must not shout
         newest = max(newest, ts)
-    for s in ("needs_input", "done", "working"):
+    for s in ("needs_input", "working", "done"):
         if s in states:
             return s, newest, len(states)
     return "idle", newest, len(states)
@@ -263,13 +268,18 @@ def session_rows():
             ts = m
         if now - max(m, ts) > SESSION_TTL_S:
             continue
-        att[os.path.splitext(os.path.basename(f))[0]] = (d.get("state") or "idle", ts)
+        att[os.path.splitext(os.path.basename(f))[0]] = (
+            d.get("state") or "idle", ts, d.get("cwd") or "")
 
     rows = []
-    for f, m in fresh_files(SESSIONS):
-        sid = os.path.splitext(os.path.basename(f))[0]
-        sl = read_json(f) or {}
-        state, ts = att.get(sid, ("idle", m))
+    sess = {os.path.splitext(os.path.basename(f))[0]: (f, m) for f, m in fresh_files(SESSIONS)}
+    # Walk both sets, not just the status line files. A window can fire hooks without ever
+    # mirroring its status line, and one of those used to set the band amber while having
+    # no row here at all: the page that exists to say which session wants you could not.
+    for sid in sorted(sess.keys() | att.keys()):
+        f, m = sess.get(sid, (None, 0.0))
+        sl = (read_json(f) or {}) if f else {}
+        state, ts, hook_cwd = att.get(sid, ("idle", m, ""))
         wait = int(now - ts)
         # No hook has fired and nothing has been written for hours: that window is closed,
         # not idle. Listing it is clutter on a four-row page.
@@ -279,6 +289,7 @@ def session_rows():
             state = "over"                      # finished long ago: not waiting on you
         name = (sl.get("session_name")
                 or os.path.basename((sl.get("workspace") or {}).get("current_dir") or "")
+                or os.path.basename(hook_cwd)          # hook-only session: name it from cwd
                 or sid[:8])
         rows.append({
             "n": name[:12],
@@ -393,6 +404,8 @@ def build_payload(poller):
         # Another window still running means the desk is not idle, whatever the headline
         # session is doing. Without this a finished session screensavers over a live one.
         p["nwork"] = sum(1 for r in rows if r["s"] == "w")
+        # Finished sessions no longer take the band, so the band has to carry the count.
+        p["nrdy"] = sum(1 for r in rows if r["s"] == "d")
     if not ts or now - ts > IDLE_AFTER_S:
         state = "idle"
     p["st"] = state
