@@ -1,56 +1,52 @@
 # Claude Code status display
 
-A small screen on the desk showing what Claude Code is doing: context window, 5-hour and
-weekly rate limits, whether it is working or waiting on you, and whether the Claude API is
-healthy. The RGB LED under the board carries the same state, so it reads from across the
-room without looking directly at it.
+A small screen for your desk that shows what Claude Code is up to: context window, the
+5-hour and weekly rate limits, whether it's working or waiting on you, and whether the
+Claude API is healthy. An RGB LED under the board glows the same color as the screen, so
+you can read the state from across the room.
 
 ![The device in a printed case, showing READY](docs/photos/ready.jpg)
 
-Amber means Claude has finished and is waiting on you, and the LED under the board glows the
-same colour. It runs off any USB-C power, so it does not have to stay tethered to the laptop.
+Amber means Claude is done and waiting on you. It runs on any USB-C power supply, so it
+doesn't need to stay tethered to the laptop.
 
 ### The pages
 
-Captured from the device's own framebuffer, not photographed.
-
 | | |
 | --- | --- |
-| **Overview** — the everyday view. CTX carries its window size, since 86% of 1M is not 86% of 200K. | **Sessions** — every live window, ranked so the top row is the thing to do next. |
+| **Overview** is the everyday view. CTX shows its window size, since 86% of 1M is not 86% of 200K. | **Sessions** lists every live window, sorted so the top row is the thing to do next. |
 | ![Overview](docs/screens/overview.png) | ![Sessions](docs/screens/sessions.png) |
-| **Weekly burn** — spend against an even pace. Above the dotted line means running hot. | **Limits** — both windows with exact reset times. |
+| **Weekly burn** is spend against an even pace. Above the dotted line means you're running hot. | **Limits** shows both windows with exact reset times. |
 | ![Weekly burn](docs/screens/burn.png) | ![Limits](docs/screens/limits.png) |
-| **Stats** — the useful part of `/usage`, including prompt-cache hit rate. | **API** — Claude API and Claude Code health, incidents in amber. |
+| **Stats** is the useful part of `/usage`, including prompt-cache hit rate. | **API** shows Claude API and Claude Code health, with incidents in amber. |
 | ![Stats](docs/screens/stats.png) | ![API status](docs/screens/api.png) |
 
-**Take the idea, not the parts list.** Nobody is going to reproduce this exactly, and they
-should not try. The reusable part is not the firmware, it is that Claude Code already
-publishes everything worth showing through two documented interfaces, so any display you
-already own can surface it: a spare phone, an e-ink badge, a Stream Deck, an LED strip, a
-menu-bar item, a smart bulb that turns amber when Claude is waiting on you. The
-[data path](#where-the-data-comes-from) is about thirty lines of glue. Everything else here
-is one answer to what to do with it.
+You don't need this exact board. Claude Code already publishes everything shown here
+through two documented interfaces, so any display you own can show it: a spare phone, an
+e-ink badge, a Stream Deck, an LED strip, a menu-bar item, a smart bulb that turns amber
+when Claude is waiting on you. The [data path](#where-the-data-comes-from) is about thirty
+lines of glue. Everything else in this repo is one way to use it.
 
 ## Build your own version
 
-The interesting part is not this board, it is that the data is already there. If you want a
-version that fits your desk, hand your coding agent [AGENTS.md](AGENTS.md) and one of these:
+If you want a version that fits your desk, hand your coding agent [AGENTS.md](AGENTS.md)
+and a prompt like one of these:
 
 > Read AGENTS.md in github.com/chewrocca/claude-status-display. Build me a macOS menu-bar
-> item using the same data path: a coloured dot for the state and the weekly rate limit as a
+> item using the same data path: a colored dot for the state and the weekly rate limit as a
 > percentage. Amber when Claude is waiting on me. No hardware.
 
 > Read AGENTS.md in github.com/chewrocca/claude-status-display. I have a Hue bulb. Wire the
-> attention state to it: calm while Claude works, amber when it is my turn, and something
-> insistent when it is blocked on a permission prompt. Ignore the numbers entirely.
+> attention state to it: calm while Claude works, amber when it's my turn, and something
+> insistent when it's blocked on a permission prompt. Ignore the numbers entirely.
 
 > Read AGENTS.md in github.com/chewrocca/claude-status-display. I have an old iPad. Serve a
 > local page from the daemon showing the three gauges and the state, big enough to read from
 > across the room.
 
-Each is an afternoon at most, because the hard part is already solved: Claude Code publishes
-this through its status line and hooks, and the merge rules that make it correct across
-several sessions are written down.
+Each one is an afternoon of work at most. The hard part is already done: Claude Code
+publishes this through its status line and hooks, and the rules for merging it correctly
+across several sessions are written down.
 
 ## What you need
 
@@ -58,10 +54,11 @@ several sessions are written down.
   The microSD slot and the 802.15.4 radio go unused.
 - **A Mac.** A launchd agent pushes status to the board. The daemon itself is portable
   Python, but the installer and the service definition are macOS-only. Linux would need
-  a systemd unit; nobody has written one.
-- **A Claude Pro or Max subscription** for the rate-limit gauges. Those fields are absent
-  on API-key billing, and the 5HR and WEEK bars will sit empty. Everything else still works.
-- Optionally a printed case. See Hardware notes for the one in the photos.
+  a systemd unit; nobody has written one yet.
+- **A Claude Pro or Max subscription** for the rate-limit gauges. Those fields aren't
+  present on API-key billing, so the 5HR and WEEK bars will sit empty. Everything else
+  still works.
+- Optionally a printed case. See [Hardware notes](#hardware-notes) for the one in the photos.
 
 ## Where the data comes from
 
@@ -76,8 +73,8 @@ No polling, no API key, no scraping. Two documented interfaces already publish e
   `PreToolUse` matched on `AskUserQuestion` catches Claude asking you something. Each writes
   a small file. See `host/esp32-status-hook.sh`.
 
-A daemon merges the two and pushes one JSON line to whatever you want to drive. Swap the
-last step and the rest carries over unchanged.
+A daemon merges the two and pushes one JSON line to whatever you want to drive. Swap out
+the last step and the rest carries over unchanged.
 
 ## Pieces
 
@@ -88,7 +85,7 @@ last step and the rest carries over unchanged.
 | `host/claude_status_daemon.py` | uv script. Reads state files, polls status.claude.com, pushes JSON lines over USB serial. |
 | `host/esp32-status-hook.sh` | Claude Code hook. Records per-session working / done / needs_input. Installed to `~/.claude/hooks/`. |
 | `host/com.claude-status.display.plist` | launchd agent that keeps the daemon running. Installed to `~/Library/LaunchAgents/`. |
-| `host/gen_sprite.py` | Gemini image generation + pixel-grid resampling to RGB565 (key colour 0xF81F). |
+| `host/gen_sprite.py` | Gemini image generation + pixel-grid resampling to RGB565 (key color 0xF81F). |
 
 Data flow: `~/.claude/statusline.sh` mirrors its JSON to `~/.claude/esp32-status/sessions/<session_id>.json`.
 Hooks write `~/.claude/esp32-status/attention/<session_id>.json`. The daemon merges the
@@ -97,87 +94,88 @@ newest session, the attention files, and the status page, then writes one JSON l
 
 ## Display
 
-- Landscape by default (band on the left, gauges on the right); portrait layouts exist for every page.
-- Band: mascot + state word. BUSY (blue, LED rainbow), READY (amber), NEEDS YOU (orange-amber),
-  RATE LIMIT (magenta), OUTAGE (red), IDLE / NO LINK (grey). A red strip on the band
-  means a major API incident while another state is showing.
-- The CTX gauge carries its window size (`CTX 1M`), because a percentage means different
+- Landscape by default (band on the left, gauges on the right). Every page also has a
+  portrait layout.
+- The band shows the mascot and the state word. BUSY (blue, LED rainbow), READY (amber),
+  NEEDS YOU (orange-amber), RATE LIMIT (magenta), OUTAGE (red), IDLE / NO LINK (gray). A red
+  strip on the band means a major API incident while some other state is showing.
+- The CTX gauge shows its window size (`CTX 1M`), because a percentage means different
   things at 1M and at 200K. The Stats page spells it out as "ctx 82% of 1M".
-- **The gauges stay quiet until they matter.** Below 70% all three collapse to one dim line,
-  because nothing is decided at 31%. The space goes to the number that does change behaviour:
-  weekly burn against an even pace, plus a sparkline of the current week with a dotted
-  reference showing where an even burn would put you. Above the diagonal means you are
-  running hot. Cross 70% and that gauge expands to a full bar with its reset time, while the
-  others stay on the dim line. Reset times are 12-hour America/Chicago.
-- Bottom row of the overview names the session being followed (it scrolls if too long): the session name if you set one
-  with /rename, otherwise the project folder. The daemon follows whichever Claude Code session
-  updated most recently, and the board flashes the new name when it switches.
-- Health row replaces the session row when Claude API or Claude Code is not operational:
+- **Gauges below 70% collapse to one dim line.** Low numbers don't need a full bar. The
+  space goes to weekly burn against an even pace, plus a sparkline of the current week with
+  a dotted reference showing where an even burn would put you. Above the diagonal means
+  you're running hot. Once a gauge crosses 70% it expands to a full bar with its reset time,
+  while the others stay on the dim line. Reset times are 12-hour America/Chicago.
+- The bottom row of the overview names the session being followed (it scrolls if too long):
+  the session name if you set one with /rename, otherwise the project folder. The daemon
+  follows whichever Claude Code session updated most recently, and the board flashes the new
+  name when it switches.
+- The health row replaces the session row when Claude API or Claude Code is not operational:
 
-  | Component state | Display | Colour |
+  | Component state | Display | Color |
   | --- | --- | --- |
   | operational | ALL GOOD | green |
   | degraded performance, maintenance | DEGRADED | orange |
   | partial outage | OUTAGE | red |
   | major outage | CRITICAL | red |
-  | status page unreachable 3x | UNKNOWN | grey |
+  | status page unreachable 3x | UNKNOWN | gray |
 
   The LED carries the same thing: an orange tick every 6 s while degraded, a red tick every
-  3 s during an outage, overlaid on whatever the session state is doing. The page-level
-  indicator is ignored, so a Cowork-only incident does not raise a warning, but an incident
+  3 s during an outage, on top of whatever the session state is doing. The page-level
+  indicator is ignored, so a Cowork-only incident doesn't raise a warning, but an incident
   left open against Claude API or Claude Code counts as degraded even while Statuspage still
   shows those components green. Incident text and other affected components are drawn in
   amber on the API page.
-- Stale data (>10 min old) is drawn dim with a "?" in the band.
-- **Sessions page**, one row per live session, ranked so the top row is the thing to do next.
-  Blocked sessions first, longest wait first, because the one waiting eight minutes is the one
-  you forgot about. A session that finished over 30 minutes ago reads "over" rather than
-  "ready": that is a graveyard entry, not a to-do. The colour bar carries the state and the
-  LED pulses once per blocked session, so two pulses means two things are waiting on you.
-
+- Stale data (more than 10 minutes old) is drawn dim with a "?" in the band.
+- **The Sessions page** has one row per live session, sorted so the top row is the thing to
+  do next. Blocked sessions come first, longest wait first. A session that finished over 30
+  minutes ago reads "over" instead of "ready". The color bar carries the state, and the LED
+  pulses once per blocked session, so two pulses means two things are waiting on you.
 - **Losing the daemon costs freshness, not data.** When nothing is pushing, the last known
   numbers stay on screen, the band freezes to a muted version of the last state and stops
-  animating, and an amber age appears above it ("25s old"). The clock and the API health row
-  keep updating, because the board fetches both itself. NO LINK is shown only when the board
-  has never received anything at all.
+  animating, and an amber age replaces the model row ("25s old"). The clock and the API
+  health row keep updating, because the board fetches both itself. NO LINK only shows when
+  the board has never received anything at all.
 
-Pages (press BOOT): Overview → Sessions → Weekly burn → Limits detail → Stats (session cost, wall and API time,
-lines changed, tokens, prompt-cache hit rate, the useful part of /usage) → API incident → About. Non-overview pages
-return after 20 s. The board only rests when nothing wants you: an unacknowledged YOUR TURN never falls behind
-a screensaver, and neither does anything else while another window is still working.
-After 1 minute of idle or no-link the board cycles through the
-pages (Overview, Sessions, Burn, Limits, Stats, API, About) every 8 s; after 5 minutes the screensaver starts:
-a drifting starfield, the mascot bouncing around the screen, the host clock, and the two
-rate limits along the bottom. The LED runs a slow dim aurora while idle. Any tap or
-state change wakes it.
+Press BOOT to cycle pages: Overview → Sessions → Weekly burn → Limits → Stats (session cost,
+wall and API time, lines changed, tokens, prompt-cache hit rate) → API incident → About.
+Pages other than the overview return to it after 20 s. The board only rests when nothing
+wants you: an unacknowledged YOUR TURN never gets hidden behind a screensaver, and neither
+does anything else while another window is still working.
 
-## Colour language
+After 1 minute idle or with no link, the board cycles through the pages every 8 s. After 5
+minutes the screensaver starts: a drifting starfield, the mascot bouncing around the screen,
+the host clock, and the two rate limits along the bottom. The LED runs a slow dim aurora
+while idle. Any tap or state change wakes it.
 
-The band colour and the LED colour come from one function, `stateRGB()`, so they are the
-same colour by construction rather than by two lists someone has to keep in step. Only
-the motion differs per state.
+## Colors
 
-| State | Colour | LED motion |
+The band color and the LED color come from one function, `stateRGB()`, so they're the same
+color by construction rather than two lists someone has to keep in sync. Only the motion
+differs per state.
+
+| State | Color | LED motion |
 | --- | --- | --- |
 | BUSY | rainbow, one lap every 6 s (the band cycles with it) | steady at that hue |
 | READY | amber `(255,165,0)` | three quick pulses, steady glow, softer after 2 min |
 | NEEDS YOU | orange `(255,129,0)` | insistent breathe until acknowledged |
 | RATE LIMIT | magenta `(255,0,255)` | slow breathe |
 | OUTAGE | red `(255,0,0)` | breathe, or a red tick every 3 s over another state |
-| IDLE | grey `(32,32,32)` | dim pilot light; a slow aurora once the screensaver runs |
-| NO LINK | grey `(32,32,32)` | slow blink |
+| IDLE | gray `(32,32,32)` | dim pilot light; a slow aurora once the screensaver runs |
+| NO LINK | gray `(32,32,32)` | slow blink |
 
-Tap BOOT to acknowledge an alert (LED drops to a steady glow). Hold 0.8 s toggles night
-mode (LED capped, screen dimmer, no hard blinks). Hold 3 s rotates the screen 90° and
-remembers it (landscape is the default). Night mode is automatic 22:00–07:00 Central from the daemon.
+Tap BOOT to acknowledge an alert (the LED drops to a steady glow). Hold for 0.8 s to toggle
+night mode (LED capped, screen dimmer, no hard blinks). Hold for 3 s to rotate the screen
+90°; the board remembers it (landscape is the default). Night mode kicks in automatically
+from 10 PM to 7 AM Central, driven by the daemon.
 
 ## Wi-Fi and Bluetooth
 
-The board can run away from the laptop on any 5V USB-C source. Provision Wi-Fi once
-over USB (the script pauses the daemon, prompts for the password without echo, generates
-a shared token, and never prints or stores the password on the Mac):
+The board can run away from the laptop on any 5V USB-C source. Provision Wi-Fi once over
+USB. The script pauses the daemon, prompts for the password without echo, generates a
+shared token, and never prints or stores the password on the Mac.
 
-**The ESP32-C6 radio is 2.4 GHz only.** A 5 GHz-only SSID will never associate; the board
+**The ESP32-C6 radio is 2.4 GHz only.** A 5 GHz-only SSID will never connect; the board
 just sits at "connecting". Most routers publish 2.4 GHz under a different name.
 
 ```sh
@@ -193,9 +191,9 @@ uv run --script host/provision.py --forget   # wipe credentials from the board
 The daemon pins itself to the board's numeric IP after first contact, because mDNS
 resolution of `claude-status.local` can take five seconds on a cold cache.
 
-Once joined, the board is `http://claude-status.local` with a small status page. The
-daemon pushes to it automatically whenever the USB serial port is absent, using the
-token in `~/.claude/esp32-status/token`. The board also fetches the Claude status page
+Once it's on the network, the board is `http://claude-status.local` with a small status
+page. The daemon pushes to it automatically whenever the USB serial port is absent, using
+the token in `~/.claude/esp32-status/token`. The board also fetches the Claude status page
 itself every 90 s and sets its clock from NTP (Central, DST aware), so the API indicator
 and clock stay right when the laptop is closed or away. Screenshots over Wi-Fi:
 `uv run --script host/screenshot.py out.png --http claude-status.local --live`.
@@ -205,12 +203,12 @@ HTTP routes: `POST /status` (payload), `GET /shot` (framebuffer), `GET /cmd?c=ta
 
 Bluetooth LE advertises as "Claude Status" with one service: a read/notify characteristic
 carrying `{"st","ctx","h5","wk","out","lim"}` and a write characteristic that accepts the
-same JSON as serial, so a phone app such as nRF Connect can read state or provision Wi-Fi
+same JSON as serial, so a phone app like nRF Connect can read state or provision Wi-Fi
 without a cable. Build with `PartitionScheme=no_ota` (the radios need the 2 MB app slot).
 
-## Recovery on a new machine
+## Setting up a new machine
 
-Everything needed is in this repo. Clone it and run:
+Everything you need is in this repo. Clone it and run:
 
 ```sh
 ./host/install.sh
@@ -221,9 +219,9 @@ to mirror its payload (keeping a dated backup), registers the hooks in
 `~/.claude/settings.json`, and writes and loads the launchd agent with paths pointing at
 wherever you cloned it. It then prints the flash and Wi-Fi steps.
 
-What the repo does **not** carry, by design: the Gemini API key (`.env.local`), the shared
-HTTP token (regenerated by `provision.py`), and the board's Wi-Fi credentials (they live in
-the board's own flash, and the password comes from 1Password at provisioning time).
+The repo deliberately doesn't carry the Gemini API key (`.env.local`), the shared HTTP
+token (`provision.py` regenerates it), or the board's Wi-Fi credentials (those live in the
+board's own flash, and the password comes from 1Password at provisioning time).
 
 If the board itself is replaced, flash the firmware and re-run `provision.py`. Nothing
 else on the Mac needs to change.
@@ -242,12 +240,12 @@ arduino-cli upload  --fqbn esp32:esp32:esp32c6:CDCOnBoot=cdc,PartitionScheme=no_
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.claude-status.display.plist
 ```
 
-Daemon log: `~/.claude/esp32-status/daemon.log`. Run it by hand with
+The daemon logs to `~/.claude/esp32-status/daemon.log`. To run it by hand:
 `uv run --script host/claude_status_daemon.py --verbose`.
 
 ## Sprites
 
-`GEMINI_API_KEY` lives in `.env.local` (not committed). Regenerate a sprite:
+`GEMINI_API_KEY` lives in `.env.local` (not committed). To regenerate a sprite:
 
 ```sh
 uv run --script host/gen_sprite.py bot_done 48 "pixel art prompt..." --force
@@ -255,15 +253,15 @@ uv run --script host/gen_sprite.py bot_done 48 "pixel art prompt..." --force
 
 ## Hardware notes
 
-The TF (microSD) slot exists but **no SD code ships in the firmware**. The test card failed,
-and the schematic explains why the diagnosis is conclusive.
+The TF (microSD) slot exists, but **the firmware ships no SD code**. The test card failed,
+and the schematic shows why that's a card problem and not a wiring one.
 
-Confirmed from the board's netlist, not the wiki table: `SD_CS` is GPIO4 (TF pin 2),
-`SD_MISO` GPIO5 (pin 7), `SD_MOSI` GPIO6 (pin 3, shared with `LCD_DIN`), `SD_SCLK` GPIO7
-(pin 5, shared with `LCD_CLK`). Crucially, **R15-R20 are 10K pull-ups to 3V3 on every SD
-line**, so those lines are never floating.
+From the board's netlist (the wiki table is wrong): `SD_CS` is GPIO4 (TF pin 2), `SD_MISO`
+GPIO5 (pin 7), `SD_MOSI` GPIO6 (pin 3, shared with `LCD_DIN`), `SD_SCLK` GPIO7 (pin 5,
+shared with `LCD_CLK`). R15-R20 are 10K pull-ups to 3V3 on every SD line, so those lines
+never float.
 
-A bit-banged CMD0 probe on the raw pins then reads:
+A bit-banged CMD0 probe on the raw pins reads:
 
 ```text
 deselected:    FFFFFFFF     the 10K pull-up holds the line high: wiring and resistor intact
@@ -271,47 +269,47 @@ selected:      80000000     the line is dragged to 0 on the first clock
 CMD0 response: 000000...    never returns the required 0x01
 ```
 
-Holding that line at 0 V against a 10K pull-up means sinking roughly 330 uA continuously.
-Nothing passive does that, and an empty slot certainly cannot. So a card is present, its DO
-pin is actively driving low, and it never releases to answer. That is a failed card
-controller, not a wiring, power, speed or ordering problem: eight spec-compliant cold starts,
-a full power cycle, a reseat and a run with the backlight off all produce the identical trace.
+Holding that line at 0 V against a 10K pull-up means sinking about 330 uA continuously.
+Nothing passive does that, and an empty slot certainly can't. So a card is present, its DO
+pin is actively driving low, and it never releases to answer. That's a dead card controller,
+not a wiring, power, speed, or ordering problem: eight spec-compliant cold starts, a full
+power cycle, a reseat, and a run with the backlight off all produce the identical trace.
 
-There is no card-detect line wired to a GPIO, so the board cannot know a card is inserted
-except by talking to it. The whole SD stack was removed: ~46 KB of a 2 MB app slot with no
-OTA, for hardware that does not work. Git history has the diagnostics if a different card is
-ever fitted.
+There's no card-detect line wired to a GPIO, so the board can't tell a card is inserted
+except by talking to it. The whole SD stack was removed: about 46 KB of a 2 MB app slot with
+no OTA, for hardware that doesn't work. The diagnostics are in git history if a different
+card ever goes in.
 
 ### The case
 
-The one in the photos is
+The one in the photos is the
 [ESP32-C6 with LCD Screen Enclosure Case](https://makerworld.com/en/models/2121443-esp32-c6-with-lcd-screen-enclosure-case#profileId-2296385)
-on MakerWorld. It fits and it looks good, but seating the board took more force than was
-comfortable, enough that it felt like something was about to crack. Go slowly, start one
-corner at a time, and expect the USB-C end to be the stubborn one. The bezel also overlaps
-the panel by a few pixels, which is why the firmware keeps text clear of the right edge.
+on MakerWorld. It fits and looks good, but seating the board took more force than felt
+safe. Go slowly, start with one corner, and expect the USB-C end to be the stubborn one.
+The bezel also overlaps the panel by a few pixels, which is why the firmware keeps text
+clear of the right edge.
 
-Print in a light or translucent filament. The LED sits under the board and lights the case
-from inside, which is most of the charm, and an opaque print throws that away. Check the
-BOOT button stays reachable, since it is the only control.
+Print it in a light or translucent filament so the LED under the board can light the case
+from inside. Make sure the BOOT button stays reachable, since it's the only control.
 
 Untested alternatives: a [snap-on lid enclosure](https://www.printables.com/model/1365867-esp32-c6-147inch-display-enclosure)
 and a [reference CAD model of the board](https://www.printables.com/model/1633740-esp32-c6-lcd-147-reference-cad-model)
-if you want to design your own. Cases for the *Touch* variant do not fit; the cutouts differ.
+if you want to design your own. Cases for the *Touch* variant don't fit; the cutouts differ.
 
 ### Radios and inputs
 
-Wi-Fi 6 (2.4 GHz), BLE 5 and 802.15.4 radios on a ceramic antenna. No touchscreen, no IMU, no buzzer or haptic, no battery circuit. Inputs are the BOOT button (GPIO 9) and
-RESET. A vibration motor or piezo could be added on a free GPIO via the header if wanted.
+Wi-Fi 6 (2.4 GHz), BLE 5, and 802.15.4 radios on a ceramic antenna. No touchscreen, no
+IMU, no buzzer or haptic, no battery circuit. Inputs are the BOOT button (GPIO 9) and
+RESET. A vibration motor or piezo could go on a free GPIO via the header.
 
 ## Reliability
 
-Built for unattended multi-week runs:
+Built to run unattended for weeks:
 
 - A 30 s task watchdog reboots the board if the main loop stalls. The framebuffer dump
   feeds it per chunk and aborts on a short write, so a client that walks out of Wi-Fi
-  range mid-screenshot cannot wedge the device.
-- No dynamic strings on the hot paths. Serial lines land in a fixed buffer and an
+  range mid-screenshot can't wedge the device.
+- No dynamic strings on the hot paths. Serial lines land in a fixed buffer, and an
   over-long line is dropped at the newline rather than truncated into a bad parse.
 - One framebuffer is allocated once and shared across rotations. A failed allocation
   restarts cleanly instead of drawing into null.
@@ -319,16 +317,16 @@ Built for unattended multi-week runs:
   rather than touching shared state directly.
 - `/cmd` allowlists only the harmless UI verbs. mDNS registers its service once, not on
   every reconnect. The status poll is skipped when free heap is under 60 KB.
-- `GET /info` reports `heap`, `minheap` and `uptime_s` for long-term monitoring.
+- `GET /info` reports `heap`, `minheap`, and `uptime_s` for long-term monitoring.
 
 ## Known limits
 
-- After you approve a permission prompt there is no "approved" hook event, so the
-  band stays on NEEDS YOU until that tool finishes and PostToolUse fires.
-- Only one process may hold the serial port. Never run the daemon by hand while the
+- After you approve a permission prompt there's no "approved" hook event, so the band
+  stays on NEEDS YOU until that tool finishes and PostToolUse fires.
+- Only one process can hold the serial port. Don't run the daemon by hand while the
   launchd agent is loaded; two writers interleave bytes and the device shows NO LINK.
 
-## Verifying what the device shows
+## Screenshots
 
 The firmware accepts host commands on the same serial line: `{"cmd":"shot"}` dumps the
 live framebuffer, and `tap`, `hold`, `rotate`, `sleep` simulate the button. With the
