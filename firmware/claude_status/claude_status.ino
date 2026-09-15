@@ -600,6 +600,36 @@ void fmtK(int k, char *b, size_t n) {
   else snprintf(b, n, "<1k");            // never report a real count as "0k"
 }
 
+// Where the week lands if nothing changes. The pace number compares this week to an even
+// spend, which is a different question: -9% under pace still finishes at 45%, and the
+// allowance left over at the reset is gone. -1 while it is too early to mean anything.
+int weekProjection() {
+  int gone = 10080 - (S.wkm >= 0 ? S.wkm : 10080);        // 10080 minutes in the week
+  if (S.wk < 0 || gone < 360) return -1;
+  return (int)((long)S.wk * 10080L / gone);
+}
+
+// What to do about it, in thirteen characters, because that is what a 172 px row holds at
+// size 2. Same ladder the dashboard walks: never an effort already at the top or the bottom,
+// never the model already in use. nullptr when there is nothing worth saying.
+const char *burnAdvice(uint16_t &col) {
+  static const char *levels[] = {"low", "medium", "high"};
+  int e = -1;
+  for (int i = 0; i < 3; i++) if (!strcasecmp(S.eff, levels[i])) e = i;
+  bool canUp = e >= 0 && e < 2, canDown = e > 0;
+  bool big = !strncasecmp(S.model, "opus", 4), small = !strncasecmp(S.model, "haiku", 5);
+  // Being minutes from a cut-off outranks anything the week has to say about it.
+  if (S.lim)      { col = C_NEEDS;  return "rate limited"; }
+  if (S.h5 >= 85) { col = C_ORANGE; return "5h nearly up"; }
+  int end = weekProjection();
+  if (end < 0) return nullptr;
+  if (end > 130) { col = C_RED;    return big ? "use sonnet" : small ? (canDown ? "lower effort" : "shorter runs") : "use haiku"; }
+  if (end > 105) { col = C_ORANGE; return canDown ? "lower effort" : big ? "use sonnet" : small ? "shorter runs" : "use haiku"; }
+  if (end >= 85) { col = C_GREEN;  return "on target"; }
+  col = C_AMBER;   // under-spending is not an error, but it is money left on the table
+  return canUp ? "raise effort" : "room to spare";
+}
+
 // Weekly burn against an even spend. The dotted diagonal is where you would be if the
 // week were spent evenly; above it means running hot. The percentage is the gap.
 void pageBurn() {
@@ -618,7 +648,25 @@ void pageBurn() {
   char r[12]; fmtRemaining(S.wkm, r, sizeof r);
   snprintf(b, sizeof b, "%d%% used   %s left", S.wk < 0 ? 0 : S.wk, r);
   textAt(6, land ? 66 : 74, b, 2, C_TXT);
-  int y = land ? 88 : 100;
+  // Where it lands and what to do about it, with the numbers they are about rather than on
+  // a page of their own: a page you have to press past is one you are not looking at when
+  // it matters. The chart gives up the rows.
+  uint16_t ac = C_DIM;
+  const char *adv = burnAdvice(ac);
+  int end = weekProjection(), rows = 0;
+  char p[16];
+  if (end >= 0) snprintf(p, sizeof p, "ends ~%d%%", end);
+  if (land) {
+    int x = 6;
+    if (end >= 0) { textAt(6, 84, p, 2, C_TXT); x = 6 + textW(p, 2) + 12; }
+    if (adv) textAt(x, 84, adv, 2, ac);
+    rows = (end >= 0 || adv) ? 1 : 0;
+  } else {
+    int ty = 92;                                      // 172 px holds one of these per row
+    if (end >= 0) { textAt(6, ty, p, 2, C_TXT); ty += 18; rows++; }
+    if (adv)      { textAt(6, ty, adv, 2, ac);         rows++; }
+  }
+  int y = (land ? 88 : 100) + rows * 18;
   int h = land ? H() - y - 26 : 120;
   sparkline(6, y, W() - 12, h);
   textAt(6, H() - 20, S.nhist < 2 ? "sampling every 5 min"
