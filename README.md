@@ -20,12 +20,27 @@ current; a photograph is the one thing here that can't be regenerated.)*
 | --- | --- |
 | **Overview** is the everyday view. CTX shows its window size, since 86% of 1M is not 86% of 200K. | **Sessions** lists every live window, sorted so the top row is the thing to do next. |
 | ![Overview](docs/screens/overview.png) | ![Sessions](docs/screens/sessions.png) |
-| **Weekly burn** is spend against an even pace. Above the dotted line means you're running hot. | **Limits** shows both windows with exact reset times. |
+| **Weekly burn** is spend against an even pace, where the week lands if nothing changes, and which dial to turn. | **Limits** shows both windows with exact reset times. |
 | ![Weekly burn](docs/screens/burn.png) | ![Limits](docs/screens/limits.png) |
 | **Stats** is the useful part of `/usage`, including cache hit rate and how long the cache stays warm. | **API** shows Claude API and Claude Code health, incidents in amber. |
 | ![Stats](docs/screens/stats.png) | ![API status](docs/screens/api.png) |
 | **Enroll** is how another Mac joins: one command, and a code good for ten minutes after power-up. | **About** is firmware, clock, uptime, session count, and the address the router handed out. |
 | ![Enroll](docs/screens/enroll.png) | ![About](docs/screens/about.png) |
+
+### The same thing in a browser
+
+Once the board is on the network, `http://claude-status.local/dashboard` is every page at once,
+for when you're already looking at a screen. No install and no account: the board serves it.
+
+![The web dashboard](docs/screens/dashboard.png)
+
+It polls `/api/status` every two seconds, which is the same JSON the board draws from and is
+worth pointing your own things at. That endpoint needs no token, on the grounds that anyone who
+can open the dashboard can already read everything in it — writing to the board still does.
+
+The page says what the board says: BUSY, READY, NEEDS YOU, the same session ranking, the same
+even-spend reference. Where it has room the board doesn't, it spends it — full session names
+rather than the twelve characters a 172px row holds, and the effort level beside the model.
 
 **You don't need this exact board.** Claude Code already publishes everything shown here through
 documented interfaces, so any display you own can show it: a spare phone, an e-ink badge, a
@@ -123,8 +138,17 @@ them. Details in [internals](docs/internals.md#several-machines).
   goes to weekly burn against an even pace, with a dotted reference showing where an even burn
   would put you. Cross 70% and that gauge expands to a full bar with its reset time.
 - **The Sessions page** is one row per live session, sorted so the top row is the thing to do
-  next: blocked first, longest wait first. Finished over 30 minutes ago reads "over" rather than
-  "ready". The LED pulses once per blocked session, so two pulses means two things are waiting.
+  next: blocked first, longest wait first. Finished over 30 minutes ago reads "closed" rather
+  than "ready". The LED pulses once per blocked session, so two pulses means two things are
+  waiting.
+- **Weekly burn ends with a conclusion.** Pace compares this week to an even spend, which isn't
+  the question you're asking: 9% under pace still finishes the week at 45%, and what's unspent
+  at the reset is gone. So the page also projects where the current rate lands, and names the
+  dial to turn — `raise effort`, `lower effort`, `use sonnet`, `on target`. It reads the model
+  and effort you're actually on, so it never suggests one you're already using. A nearly spent
+  5-hour window takes that line instead, because being minutes from a cut-off outranks the week.
+  It's a straight-line projection from the week so far, so it swings early in the week and
+  settles as the week fills in.
 - **The health row** replaces the session row when the API isn't operational: ALL GOOD, DEGRADED,
   OUTAGE, CRITICAL, or UNKNOWN. The LED carries the same thing as a tick over whatever the
   session state is doing. A Cowork-only incident doesn't raise a warning.
