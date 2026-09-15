@@ -77,9 +77,12 @@ No polling, no API key, no scraping. Two documented interfaces already publish e
   payload ever appears for it. The hook passes on `transcript_path`, and every assistant
   record in that file carries a `usage` block, so the context tokens, model and version can
   be read from its tail. Rate limits are not in there and are not available any other way, so
-  those gauges stay empty for such a session. The context gauge shows a token count rather
-  than a percentage, because the transcript gives tokens but not the size of the window they
-  sit in: its model id drops the marker that would say whether it is 200K or 1M.
+  those gauges stay empty for such a session. Everything else reads exactly as it would for a
+  terminal session, the context gauge included. Assistant records drop the `[1m]` marker from
+  the model id, but the identity record written at the start of the transcript keeps it, and
+  that is what says whether the window is 1M or the model's ordinary 200K. Checked against a
+  status line on the same session: 510710 tokens of 1M came back as the 51% Claude Code
+  itself reported.
 
 A daemon merges the two and pushes one JSON line to whatever you want to drive. Swap out
 the last step and the rest carries over unchanged.

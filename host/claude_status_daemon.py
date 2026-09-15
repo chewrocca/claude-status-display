@@ -126,15 +126,55 @@ def attention():
 
 
 _transcript_cache = {}
+_identity_cache = {}
+
+
+def transcript_identity(path, base_model):
+    """The identity record for a transcript: the full model id, with its `[1m]` marker.
+
+    Assistant records drop that marker, and it is the only thing that says whether the window
+    is 1M or the model's ordinary 200K. Identity records are written once at session start,
+    so they sit near the top of a file that can be megabytes long and a tail read never sees
+    them. Scan forward for it once and keep it, re-scanning only when the model actually
+    changes, which the assistant records do report.
+    """
+    cached = _identity_cache.get(path)
+    if cached and cached[0] == base_model:
+        return cached[1]
+    ident = {}
+    try:
+        with open(path, "rb") as fh:
+            for line in fh:
+                if b'"identity"' not in line:
+                    continue
+                try:
+                    d = json.loads(line)
+                except Exception:
+                    continue
+                i = (d.get("attachment") or {}).get("identity") or {}
+                if i.get("modelId"):
+                    ident = i                      # keep the last, a model switch adds one
+    except OSError:
+        return {}
+    _identity_cache[path] = (base_model, ident)
+    return ident
 
 
 def transcript_tail(path, tail_bytes=65536):
-    """Model and context tokens from a session's transcript.
+    """Everything a session's transcript can tell us about it.
 
     A window running in the desktop app fires hooks but never mirrors a status line, so this
-    is the only route to its numbers. Every assistant record carries a usage block; the last
-    one holds the current context. Only the tail is read, and the result is cached against
-    the file's size and mtime, because this runs on every daemon tick.
+    is the only route to its numbers. Two record types matter. Assistant records carry a
+    usage block, and the last one holds the current context. Attachment records carry an
+    identity block with the *full* model id, including the `[1m]` marker that the assistant
+    records drop, plus the same marketing name the status line would have given.
+
+    That marker is what makes a percentage possible: with it the window is 1M, without it the
+    model's ordinary 200K. Verified against a status line on the same session, 495196 tokens
+    of 1M read back as the 50% Claude Code itself reported.
+
+    Only the tail is read, and results are cached per path against size and mtime, because
+    this runs on every daemon tick.
     """
     if not path:
         return {}
@@ -142,10 +182,10 @@ def transcript_tail(path, tail_bytes=65536):
         st = os.stat(path)
     except OSError:
         return {}
-    key = (path, st.st_mtime, st.st_size)
-    hit = _transcript_cache.get("k")
-    if hit == key:
-        return _transcript_cache.get("v") or {}
+    key = (st.st_mtime, st.st_size)
+    cached = _transcript_cache.get(path)
+    if cached and cached[0] == key:
+        return cached[1]
     out = {}
     try:
         with open(path, "rb") as fh:
@@ -160,25 +200,34 @@ def transcript_tail(path, tail_bytes=65536):
             d = json.loads(line)
         except Exception:
             continue
-        if d.get("type") != "assistant":
-            continue
-        m = d.get("message") or {}
-        u = m.get("usage") or {}
-        if not u:
-            continue
-        def n(k):
-            try: return int(u.get(k) or 0)
-            except (TypeError, ValueError): return 0
-        out = {
-            # What the next request will have to carry: the prompt, whatever was served from
-            # cache, and whatever was just written into it. Output is not part of the window.
-            "ctx_tokens": n("input_tokens") + n("cache_read_input_tokens") + n("cache_creation_input_tokens"),
-            "model": m.get("model") or "",
-            "ver": str(d.get("version") or "")[:8],
-            "cwd": d.get("cwd") or "",
-        }
-        break
-    _transcript_cache["k"], _transcript_cache["v"] = key, out
+        if not out and d.get("type") == "assistant":
+            m = d.get("message") or {}
+            u = m.get("usage") or {}
+            if u:
+                def n(k):
+                    try: return int(u.get(k) or 0)
+                    except (TypeError, ValueError): return 0
+                out = {
+                    # What the next request has to carry: the prompt, whatever was served
+                    # from cache, and whatever was just written into it. Output is not part
+                    # of the window. This matches the status line's total_input_tokens.
+                    "ctx_tokens": (n("input_tokens") + n("cache_read_input_tokens")
+                                   + n("cache_creation_input_tokens")),
+                    "model": m.get("model") or "",
+                    "ver": str(d.get("version") or "")[:8],
+                    "cwd": d.get("cwd") or "",
+                }
+        if out:
+            break
+    ident = transcript_identity(path, out.get("model", "")) if out else {}
+    if out and ident:
+        out["model"] = ident.get("marketingName") or out["model"]
+        # The only thing that distinguishes a 1M session from an ordinary one. Absent means
+        # the model's standard window; there is no third size to confuse it with.
+        out["window"] = 1000000 if str(ident.get("modelId", "")).endswith("[1m]") else 200000
+        if out["window"]:
+            out["ctx_pct"] = round(out["ctx_tokens"] / out["window"] * 100)
+    _transcript_cache[path] = (key, out)
     return out
 
 
@@ -516,10 +565,16 @@ def build_payload(poller):
         # No status line, so no percentage: the transcript gives tokens but not the size of
         # the window they sit in, and the model id it carries drops the variant marker that
         # would say which. Send the count and let the gauge show that instead.
-        p["ctx"] = -1
         t = transcript_tail(owner.get("transcript"))
-        if t.get("ctx_tokens"):
-            p["ctxt"] = round(t["ctx_tokens"] / 1000)
+        if t.get("ctx_pct") is not None:
+            # A real percentage, so this gauge reads exactly as it would for a terminal
+            # session: same number, same window label beside it.
+            p["ctx"] = t["ctx_pct"]
+            p["cwin"] = window_label(t["window"])
+        else:
+            p["ctx"] = -1                      # no identity record: show the count instead
+            if t.get("ctx_tokens"):
+                p["ctxt"] = round(t["ctx_tokens"] / 1000)
         if t.get("model"):
             p["model"] = short_model(t["model"])
         if t.get("ver"):

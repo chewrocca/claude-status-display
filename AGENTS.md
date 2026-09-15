@@ -110,10 +110,14 @@ With several sessions open, the rule that works:
   see it. Name it from the hook's `cwd` when there is no status line payload.
 - **A session with no status line is not a session with no numbers.** The hook carries
   `transcript_path`, and every assistant record in a transcript carries a `usage` block, so
-  context tokens, model, version and the real project directory are all one tail read away.
-  Read the tail only and cache it against size and mtime; this runs on every tick. What is
-  genuinely absent is the rate limits: they appear nowhere in the hook payload or the
-  transcript, only in the status line.
+  context tokens, model, version and the real project directory are all one tail read away,
+  and they match the status line exactly. The window size takes one more step: assistant
+  records carry a model id with the `[1m]` marker stripped, so the percentage is unknowable
+  from them alone. The identity record written at session start keeps the full id. It sits
+  near the top of a file that runs to megabytes, so scan forward for it once and cache it,
+  re-scanning only when the assistant records report a different model. Read only the tail
+  for everything else; this runs on every tick. What is genuinely absent is the rate limits:
+  they appear nowhere in the hook payload or the transcript, only in the status line.
 - **Numbers belong to the session that owns the headline, not to the most recent writer.**
   Context and cost are per session. Not every window mirrors a status line: one running in
   the desktop app fires hooks but never writes one, because that surface draws its own usage
