@@ -115,6 +115,12 @@ With several sessions open, the rule that works:
   the model's display name; it sits near the top of a file that runs to megabytes, so scan
   forward for it once and cache it, re-scanning only when the assistant records report a
   different model. Read only the tail for everything else; this runs on every tick.
+- **Seed the obvious cases, learn the rest.** A built-in table gets a fresh board to a real
+  percentage before it has watched a status line, but assert only what has been observed: an
+  id ending `[1m]` is 1M, Fable is 1M with no marker at all, Haiku 4.5 is the one current
+  model that is not. Leave anything else unknown and show tokens. Guessing 1M for a 200K
+  session understates it five times over, and a gauge that exists to warn you should never be
+  wrong in the reassuring direction.
 - **Never infer a context window size from a model id.** `claude-opus-5[1m]` carries a marker
   because Opus also runs at 200K. `claude-fable-5-1` carries none and is 1M anyway. No
   transcript states the size. Learn it from status line payloads, keyed on display name, and
