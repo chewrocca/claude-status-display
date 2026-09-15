@@ -272,10 +272,10 @@ else on the Mac needs to change.
 
 Once the board is on Wi-Fi it does not care which Mac is talking to it, and a second one needs
 no cable and no flashing. Power-cycle the board and press BOOT round to the About page: for ten
-minutes it shows the command that enrols a Mac, which is one line to run there.
+minutes it shows the command that enrolls a Mac, which is one line to run there.
 
 ```sh
-curl 192.168.10.178/e/363381 | sh
+curl 192.168.10.178/enroll/363381 | sh
 ```
 
 The address and the six digits are the ones on the screen. That clones the repo to

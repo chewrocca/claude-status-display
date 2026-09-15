@@ -27,9 +27,9 @@ WebServer http(80);
 volatile bool dumpInFlight = false;   // suppress other tasks logging into a binary dump
 String netSsid, netPass, netToken;
 bool wifiUp = false, mdnsUp = false, ntpSet = false, bleUp = false;
-#define ENROL_WINDOW_MS (10UL * 60UL * 1000UL)
-uint32_t enrolCode = 0;                               // see httpEnrol, below
-bool enrolOpen() { return millis() < ENROL_WINDOW_MS; }
+#define ENROLL_WINDOW_MS (10UL * 60UL * 1000UL)
+uint32_t enrollCode = 0;                               // see httpEnroll, below
+bool enrollOpen() { return millis() < ENROLL_WINDOW_MS; }
 unsigned long lastWifiTry = 0;
 char netOut[12] = "unknown";       // worst level among watched components, fetched by the board
 char netComp[8] = "";              // which watched component (API / CODE)
@@ -43,7 +43,7 @@ void netLoadCreds() {
   netSsid = prefs.getString("ssid", "");
   netPass = prefs.getString("pass", "");
   netToken = prefs.getString("token", "");
-  enrolCode = 100000 + (esp_random() % 900000);       // six digits, new on every power-up
+  enrollCode = 100000 + (esp_random() % 900000);       // six digits, new on every power-up
 }
 void netSaveCreds(const char *ssid, const char *pass, const char *token) {
   prefs.putString("ssid", ssid ? ssid : "");
@@ -127,7 +127,7 @@ void httpCmd() {
 // screen; that URL is the only one that returns the token, and the only way to know it is to
 // be standing in front of the device. The window closes ten minutes after power-up, so an
 // unattended board on a shared network is not handing anything to anyone.
-void httpEnrol() {
+void httpEnroll() {
   String sh =
     "#!/bin/sh\n"
     "set -e\n"
@@ -146,13 +146,13 @@ void httpEnrol() {
 // characters the shell would try to glob.
 void httpNotFound() {
   String u = http.uri();
-  if (u.startsWith("/e/")) {
-    if (!enrolOpen()) {
-      http.send(403, "text/plain", "enrolment closed: power-cycle the board and look at its screen\n");
+  if (u.startsWith("/enroll/")) {
+    if (!enrollOpen()) {
+      http.send(403, "text/plain", "enrollment closed: power-cycle the board and look at its screen\n");
       return;
     }
-    if (u.substring(3).toInt() == (long)enrolCode && enrolCode) {
-      httpEnrol();
+    if (u.substring(8).toInt() == (long)enrollCode && enrollCode) {
+      httpEnroll();
       return;
     }
     http.send(403, "text/plain", "wrong code: it is on the board's About page\n");
@@ -302,7 +302,7 @@ void netBegin() {
   http.on("/shot", HTTP_GET, httpShot);
   http.on("/cmd", HTTP_GET, httpCmd);
   http.on("/info", HTTP_GET, httpInfo);
-  http.onNotFound(httpNotFound);                      // /e/<code> enrols a Mac, see above
+  http.onNotFound(httpNotFound);                      // /enroll/<code> enrolls a Mac, see above
   const char *hdrs[] = {"X-Token"}; http.collectHeaders(hdrs, 1);
   bleBegin();
   xTaskCreate(pollStatusTask, "poll", 16384, nullptr, 1, &pollTask);   // mbedTLS handshake is stack-hungry
