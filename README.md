@@ -278,14 +278,20 @@ minutes it shows the command that enrolls a Mac, which is one line to run there.
 curl -fsSL 192.168.10.178/install.sh | sh
 ```
 
-The address is the one on the screen. The script asks for the six digits shown under it, which
-it trades for the shared token, then clones this repo from GitHub and runs `host/install.sh`
-from it. So enrolling needs GitHub reachable, not just the board. Run it as yourself: every
-path it writes is under your home directory.
+The address is the one on the screen. The script asks for the six digits shown under it, trades
+them for the shared token, and then takes the three host files it needs from the board itself:
+`install.sh`, the hook, and the daemon. No git, no GitHub, no checkout. The board is carrying
+them, so `curl` and a shell are the entire dependency list for getting installed.
 
-Re-running it where a checkout already exists updates that one rather than leaving a second
-copy behind, by reading the path out of the launchd agent. A checkout that will not
-fast-forward is used as it stands rather than failing the install.
+Run it as yourself. Every path it writes is under your home directory, and elevating the `curl`
+side of that pipe would not change what the script does anyway.
+
+Being installed and being able to run are different things: the hook parses its input with
+`jq`, and the daemon is a `uv` script. `install.sh` checks for those and says plainly if they
+are missing rather than leaving you with something that cannot start.
+
+Re-running it where a checkout already exists uses that one instead, by reading the path out
+of the launchd agent, so a machine you develop on does not end up with a second copy.
 
 `-f` is not decoration: the command ends in `| sh`, so a refusal returned as a 200 with an
 explanation in the body would be piped into a shell. Every refusal here is an HTTP error and

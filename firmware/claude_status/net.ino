@@ -4,6 +4,7 @@
 // The host daemon POSTs the same JSON payload to http://claude-status.local/status
 // (header X-Token if a token is set). GET /shot dumps the framebuffer, GET /cmd?c=tap.
 
+#include "payload.h"
 #include <WiFi.h>
 #include <NetworkClientSecure.h>
 #include <HTTPClient.h>
@@ -158,20 +159,24 @@ void httpEnroll() {
     "else\n"
     "  echo 'Not a terminal, so no token was written.' >&2\n"
     "fi\n"
-    // Re-run on a machine that already has a checkout and it should update that one, not
-    // leave a second copy behind and quietly repoint the agent at it.
+    // Re-run where a checkout already exists and it should use that, not leave a second copy
+    // behind and quietly repoint the agent at it.
     "P=\"$HOME/Library/LaunchAgents/com.claude-status.display.plist\"\n"
     "D=\"\"\n"
     "if [ -f \"$P\" ]; then\n"
     "  E=$(sed -n 's|.*<string>\\(/.*\\)/host/claude_status_daemon.py</string>.*|\\1|p' \"$P\" | head -1)\n"
-    "  [ -n \"$E\" ] && [ -d \"$E/.git\" ] && D=\"$E\"\n"
+    "  [ -n \"$E\" ] && [ -f \"$E/host/install.sh\" ] && D=\"$E\"\n"
     "fi\n"
-    "[ -n \"$D\" ] || D=\"${CLAUDE_STATUS_DIR:-$HOME/.claude-status-display}\"\n"
-    // A checkout you are working in may not fast-forward, and that is no reason to refuse to
-    // install. Say so and carry on with what is there.
-    "if [ -d \"$D/.git\" ]; then echo \"Updating $D\"\n"
-    "  git -C \"$D\" pull --ff-only || echo '  not fast-forwardable; using this checkout as it is'\n"
-    "else git clone https://github.com/chewrocca/claude-status-display.git \"$D\"\n"
+    // Otherwise take the files from the board. It is carrying them, so there is nothing to
+    // clone and nothing to fetch from the internet: curl and a shell are the whole list.
+    "if [ -z \"$D\" ]; then\n"
+    "  D=\"${CLAUDE_STATUS_DIR:-$HOME/.claude-status-display}\"\n"
+    "  mkdir -p \"$D/host\"\n"
+    "  curl -fsSL \"$B/setup.sh\"  > \"$D/host/install.sh\"\n"
+    "  curl -fsSL \"$B/hook.sh\"   > \"$D/host/esp32-status-hook.sh\"\n"
+    "  curl -fsSL \"$B/daemon.py\" > \"$D/host/claude_status_daemon.py\"\n"
+    "  chmod 755 \"$D/host/install.sh\" \"$D/host/esp32-status-hook.sh\"\n"
+    "  echo \"Installed from the board into $D\"\n"
     "fi\n"
     "CLAUDE_STATUS_ENROLLED=1 \"$D/host/install.sh\"\n";
   http.send(200, "text/plain", sh);
@@ -339,6 +344,10 @@ void netBegin() {
   http.on("/cmd", HTTP_GET, httpCmd);
   http.on("/info", HTTP_GET, httpInfo);
   http.on("/install.sh", HTTP_GET, httpEnroll);       // carries no secret, so needs no gate
+  // The host files themselves, so enrolling needs neither git nor GitHub.
+  http.on("/setup.sh",  HTTP_GET, [] { http.send_P(200, "text/plain", PAYLOAD_INSTALL); });
+  http.on("/hook.sh",   HTTP_GET, [] { http.send_P(200, "text/plain", PAYLOAD_HOOK); });
+  http.on("/daemon.py", HTTP_GET, [] { http.send_P(200, "text/plain", PAYLOAD_DAEMON); });
   http.onNotFound(httpNotFound);                      // /t/<code> is the gated one
   const char *hdrs[] = {"X-Token"}; http.collectHeaders(hdrs, 1);
   bleBegin();

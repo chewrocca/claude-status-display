@@ -123,6 +123,12 @@ With several sessions open, the rule that works:
   "Opus 5 (1M context)". Let the tokens veto the map, since a session holding more context
   than its supposed window has proved that is not its window; drop the entry and count tokens
   until it is learned again.
+- **The board can carry the host side too.** `host/gen_payload.py` embeds `install.sh`, the
+  hook and the daemon into the firmware as raw string literals, and the board serves them at
+  `/setup.sh`, `/hook.sh` and `/daemon.py`. That is what makes enrolling a machine need only
+  `curl`: no git, no clone, no reaching the internet at all. It costs about 44 KB of flash.
+  Regenerate the header whenever any of those three change, or the board will happily install
+  a stale copy of them.
 - **What the display learns belongs on the display.** Window sizes and the weekly curve are
   kept in the board's own flash, not in a file on whichever laptop happened to see them first.
   The board is the only always-on participant and the only one every machine talks to, so this

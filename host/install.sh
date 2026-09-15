@@ -12,6 +12,18 @@ say() { printf '  %s\n' "$*"; }
 
 echo "Installing the Claude status display from $REPO"
 
+# 0. what this actually needs ------------------------------------------------
+# Everything else here is written by this script, but the hook parses its input with jq and
+# the daemon is a uv script. Say so plainly rather than installing something that cannot run.
+MISSING=""
+for t in jq uv python3; do command -v "$t" >/dev/null 2>&1 || MISSING="$MISSING $t"; done
+if [[ -n "$MISSING" ]]; then
+  say "MISSING:$MISSING"
+  say "  jq is used by the hook, uv runs the daemon, python3 patches your settings."
+  say "  brew install${MISSING/ python3/}"
+  say "  Continuing: everything will be installed, but will not run until those exist."
+fi
+
 # 1. state directories -------------------------------------------------------
 mkdir -p "$STATE/sessions" "$STATE/attention" "$HOME/.claude/hooks" "$HOME/Library/LaunchAgents"
 say "state directories ready"
