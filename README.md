@@ -279,7 +279,13 @@ curl -fsSL 192.168.10.178/install.sh | sh
 ```
 
 The address is the one on the screen. The script asks for the six digits shown under it, which
-it trades for the shared token before cloning the repo and running the installer.
+it trades for the shared token, then clones this repo from GitHub and runs `host/install.sh`
+from it. So enrolling needs GitHub reachable, not just the board. Run it as yourself: every
+path it writes is under your home directory.
+
+Re-running it where a checkout already exists updates that one rather than leaving a second
+copy behind, by reading the path out of the launchd agent. A checkout that will not
+fast-forward is used as it stands rather than failing the install.
 
 `-f` is not decoration: the command ends in `| sh`, so a refusal returned as a 200 with an
 explanation in the body would be piped into a shell. Every refusal here is an HTTP error and

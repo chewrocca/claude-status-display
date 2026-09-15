@@ -158,12 +158,22 @@ void httpEnroll() {
     "else\n"
     "  echo 'Not a terminal, so no token was written.' >&2\n"
     "fi\n"
-    "D=\"${CLAUDE_STATUS_DIR:-$HOME/.claude-status-display}\"\n"
-    "if [ -d \"$D/.git\" ]; then git -C \"$D\" pull --ff-only\n"
+    // Re-run on a machine that already has a checkout and it should update that one, not
+    // leave a second copy behind and quietly repoint the agent at it.
+    "P=\"$HOME/Library/LaunchAgents/com.claude-status.display.plist\"\n"
+    "D=\"\"\n"
+    "if [ -f \"$P\" ]; then\n"
+    "  E=$(sed -n 's|.*<string>\\(/.*\\)/host/claude_status_daemon.py</string>.*|\\1|p' \"$P\" | head -1)\n"
+    "  [ -n \"$E\" ] && [ -d \"$E/.git\" ] && D=\"$E\"\n"
+    "fi\n"
+    "[ -n \"$D\" ] || D=\"${CLAUDE_STATUS_DIR:-$HOME/.claude-status-display}\"\n"
+    // A checkout you are working in may not fast-forward, and that is no reason to refuse to
+    // install. Say so and carry on with what is there.
+    "if [ -d \"$D/.git\" ]; then echo \"Updating $D\"\n"
+    "  git -C \"$D\" pull --ff-only || echo '  not fast-forwardable; using this checkout as it is'\n"
     "else git clone https://github.com/chewrocca/claude-status-display.git \"$D\"\n"
     "fi\n"
-    "\"$D/host/install.sh\"\n"
-    "echo; echo 'Enrolled. Restart Claude Code so the hooks load.'\n";
+    "CLAUDE_STATUS_ENROLLED=1 \"$D/host/install.sh\"\n";
   http.send(200, "text/plain", sh);
 }
 

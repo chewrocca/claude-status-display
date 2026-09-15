@@ -137,6 +137,16 @@ EOF
   exit 0
 fi
 
+# Invoked by the board's own enrollment script: the board is built, on the network, and just
+# handed over its token. Telling this machine how to flash one would be nonsense.
+if [[ -n "${CLAUDE_STATUS_ENROLLED:-}" ]]; then
+  cat <<EOF
+
+Enrolled. Restart Claude Code so the hooks load.
+EOF
+  exit 0
+fi
+
 cat <<EOF
 
 Done. Remaining steps:
