@@ -277,8 +277,12 @@ the new machine, and a six-digit code for the ten minutes after power-up. If the
 closed the page says so and tells you to power-cycle, rather than simply not being there.
 
 ```sh
-curl -fsSL 192.168.10.178/install.sh | sh
+curl -fsS 192.168.10.178/install.sh | sh
 ```
+
+The screen has to break that across two lines, so it ends the first one with a backslash. That
+is the shell's own line continuation, not decoration: type or paste the two lines exactly as
+shown and you get this single command.
 
 The address is the one on the screen. The script asks for the six digits shown under it, trades
 them for the shared token, and then takes the three host files it needs from the board itself:

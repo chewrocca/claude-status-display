@@ -751,7 +751,13 @@ void pageEnroll() {
     return;
   }
   textAt(6, 34, "run this on the new mac:", 2, C_DIM);
-  snprintf(b, sizeof b, "curl -fsSL %s", netIp());   textAt(6, 60, b, 2, C_TXT);
+  // One command, and it does not fit on one line of a 320 px panel at readable size. The
+  // trailing backslash is not decoration: it is the shell's own line continuation, so typing
+  // or pasting these two lines exactly as they appear produces the right single command.
+  // Without it, reading the screen literally runs the first line on its own, which fetches
+  // the status page, and then tries to execute /install.sh as a path. -L goes to make room,
+  // and is no loss: there is nothing on this board to redirect to.
+  snprintf(b, sizeof b, "curl -fsS %s\\", netIp());   textAt(6, 60, b, 2, C_TXT);
   textAt(6, 80, "/install.sh | sh", 2, C_TXT);
   if (enrollOpen()) {
     snprintf(b, sizeof b, "code %lu", (unsigned long)enrollCode);
