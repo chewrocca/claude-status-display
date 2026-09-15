@@ -239,7 +239,9 @@ and clock stay right when the laptop is closed or away. Screenshots over Wi-Fi:
 `uv run --script host/screenshot.py out.png --http claude-status.local --live`.
 
 HTTP routes: `POST /status` (payload), `GET /shot` (framebuffer), `GET /cmd?c=tap|hold|rotate|sleep`,
-`GET /info`, `GET /`. All accept `X-Token`.
+`GET /info`, `GET /`. All accept `X-Token`. `POST /status` answers with the board's model
+window map, which is how a machine with no cable learns it; over USB the daemon asks for it
+with `{"cmd":"win"}` when the board says hello.
 
 Bluetooth LE advertises as "Claude Status" with one service: a read/notify characteristic
 carrying `{"st","ctx","h5","wk","out","lim"}` and a write characteristic that accepts the

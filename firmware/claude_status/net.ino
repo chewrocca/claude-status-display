@@ -76,7 +76,10 @@ void httpStatus() {
   strlcpy(transport, "wifi", sizeof transport);
   String body = http.arg("plain");   // keep the String alive for the call
   handleLine(body.c_str());
-  http.send(200, "application/json", "{\"ok\":true}");
+  // Hand back what this board knows about model window sizes. A host on Wi-Fi never sees the
+  // serial hello, so this reply is its only chance to learn them, and without it a machine
+  // with no cable would count tokens forever while a cabled one showed percentages.
+  http.send(200, "application/json", "{\"ok\":true,\"win\":" + prefs.getString("win", "{}") + "}");
 }
 void httpShot() {
   if (!tokenOk(http.header("X-Token"))) { http.send(401, "text/plain", "token"); return; }

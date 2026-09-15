@@ -670,7 +670,11 @@ class HttpLink:
                                      headers={"Content-Type": "application/json", "X-Token": self.token})
         try:
             with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT_S) as r:
-                r.read()
+                raw = r.read()
+            try:                                  # the reply carries the board's window map
+                adopt_windows((json.loads(raw) or {}).get("win"))
+            except Exception:
+                pass
             if not self.ok:
                 log(f"wifi link up ({self.host})")
                 self.learn_ip()
