@@ -20,6 +20,8 @@ doesn't need to stay tethered to the laptop.
 | ![Weekly burn](docs/screens/burn.png) | ![Limits](docs/screens/limits.png) |
 | **Stats** is the useful part of `/usage`, including prompt-cache hit rate and how long the cache stays warm. | **API** shows Claude API and Claude Code health, with incidents in amber. |
 | ![Stats](docs/screens/stats.png) | ![API status](docs/screens/api.png) |
+| **Enroll** is how another Mac joins: one command, and a code good for ten minutes after power-up. | **About** is firmware, clock, uptime, session count, and the address the router handed out. |
+| ![Enroll](docs/screens/enroll.png) | ![About](docs/screens/about.png) |
 
 You don't need this exact board. Claude Code already publishes everything shown here
 through two documented interfaces, so any display you own can show it: a spare phone, an
