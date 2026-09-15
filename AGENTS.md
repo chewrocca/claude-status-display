@@ -118,7 +118,11 @@ With several sessions open, the rule that works:
 - **Never infer a context window size from a model id.** `claude-opus-5[1m]` carries a marker
   because Opus also runs at 200K. `claude-fable-5-1` carries none and is 1M anyway. No
   transcript states the size. Learn it from status line payloads, keyed on display name, and
-  show a token count for a model you have not seen one for.
+  show a token count for a model you have not seen one for. Names do not always match across
+  surfaces: the desktop app drops the variant suffix, calling "Opus 5" what the terminal calls
+  "Opus 5 (1M context)". Let the tokens veto the map, since a session holding more context
+  than its supposed window has proved that is not its window; drop the entry and count tokens
+  until it is learned again.
 - **Rate limits are the one thing with no local source but the status line.** They are in no
   hook field and nowhere in a transcript. Borrow them from whichever window last asked, since
   every window spends the same account allowance, and carry the age so an old reading can be

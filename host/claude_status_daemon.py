@@ -145,6 +145,20 @@ def windows_map():
     return _windows
 
 
+def forget_window(name):
+    """Drop a mapping the evidence contradicts, so it can be learned again correctly."""
+    m = windows_map()
+    if m.pop(name, None) is None:
+        return
+    try:
+        tmp = WINDOWS_FILE + ".tmp"
+        with open(tmp, "w") as fh:
+            json.dump(m, fh, indent=1)
+        os.replace(tmp, WINDOWS_FILE)
+    except OSError:
+        pass
+
+
 def learn_window(sl):
     """Remember the window size the status line reports for this model."""
     name = ((sl.get("model") or {}).get("display_name") or "").strip()
@@ -265,6 +279,14 @@ def transcript_tail(path, tail_bytes=65536):
         # lets the learned window map bridge the two sources.
         out["model"] = ident.get("marketingName") or out["model"]
         size = windows_map().get(out["model"])
+        # A window smaller than the context already in it is not that session's window. The
+        # app names models without the variant suffix the CLI uses ("Opus 5" against "Opus 5
+        # (1M context)"), so a name can be matched to the wrong size. Tokens observed are the
+        # one hard fact available, so let them veto the mapping rather than publish a
+        # percentage that is wrong by a factor of five.
+        if size and out["ctx_tokens"] > size:
+            forget_window(out["model"])
+            size = None
         if size:
             out["window"] = size
             out["ctx_pct"] = round(out["ctx_tokens"] / size * 100)

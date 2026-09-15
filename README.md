@@ -87,8 +87,13 @@ No polling, no API key, no scraping. Two documented interfaces already publish e
   carries a marker only because Opus also runs at 200K while `claude-fable-5-1` carries none
   and is 1M regardless. So sizes are learned from status line payloads, matched on the model's
   display name, and kept in `~/.claude/esp32-status/model-windows.json`. A model never seen in
-  a terminal shows its token count instead of a guessed percentage. The file is plain JSON if
-  you would rather fill one in.
+  a terminal shows its token count instead of a guessed percentage. The file is plain JSON, so
+  you can fill one in yourself, which you will need to: the app names models without the
+  variant suffix the terminal uses, calling the same thing "Opus 5" that the terminal calls
+  "Opus 5 (1M context)", so the two do not always meet in the middle. A mapping the evidence
+  contradicts is thrown away rather than believed: if a session is holding more context than
+  its supposed window, that is not its window, and the gauge goes back to counting tokens
+  until the size is learned again.
 
 A daemon merges the two and pushes one JSON line to whatever you want to drive. Swap out
 the last step and the rest carries over unchanged.
