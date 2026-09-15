@@ -7,8 +7,12 @@ you can read the state from across the room.
 
 ![The device in a printed case, showing READY](docs/photos/ready.jpg)
 
-Amber means Claude is done and waiting on you. It runs on any USB-C power supply, so it
-doesn't need to stay tethered to the laptop.
+Yellow means Claude is done and waiting on you, red-orange means it is blocked and cannot
+carry on without you. It runs on any USB-C power supply, so it doesn't need to stay tethered
+to the laptop.
+
+*(That photo predates the color change and still shows the old amber. The framebuffer
+captures below are current; a photograph is the one thing here that cannot be regenerated.)*
 
 ### The pages
 
