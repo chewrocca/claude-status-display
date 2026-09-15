@@ -166,7 +166,8 @@ newest session, the attention files, and the status page, then writes one JSON l
   the board has never received anything at all.
 
 Press BOOT to cycle pages: Overview → Sessions → Weekly burn → Limits → Stats (session cost,
-wall and API time, lines changed, tokens, prompt-cache hit rate) → API incident → About.
+wall and API time, lines changed, tokens, prompt-cache hit rate) → API incident → Enroll →
+About.
 Pages other than the overview return to it after 20 s.
 
 The board only rests when nothing wants you. A permission prompt never gets hidden behind a
@@ -271,8 +272,9 @@ else on the Mac needs to change.
 ### A second machine
 
 Once the board is on Wi-Fi it does not care which Mac is talking to it, and a second one needs
-no cable and no flashing. Power-cycle the board and press BOOT round to the About page: for ten
-minutes it shows the command that enrolls a Mac, which is one line to run there.
+no cable and no flashing. Press BOOT round to the Enroll page: it shows the command to run on
+the new machine, and a six-digit code for the ten minutes after power-up. If the window has
+closed the page says so and tells you to power-cycle, rather than simply not being there.
 
 ```sh
 curl -fsSL 192.168.10.178/install.sh | sh

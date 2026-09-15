@@ -28,7 +28,6 @@ WebServer http(80);
 volatile bool dumpInFlight = false;   // suppress other tasks logging into a binary dump
 String netSsid, netPass, netToken;
 bool wifiUp = false, mdnsUp = false, ntpSet = false, bleUp = false;
-#define ENROLL_WINDOW_MS (10UL * 60UL * 1000UL)
 uint32_t enrollCode = 0;                               // see httpEnroll, below
 bool enrollOpen() { return millis() < ENROLL_WINDOW_MS; }
 unsigned long lastWifiTry = 0;

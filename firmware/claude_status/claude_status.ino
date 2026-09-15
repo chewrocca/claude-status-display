@@ -105,6 +105,7 @@ const char *clockStr();
 const char *netIp();
 extern uint32_t enrollCode;
 bool enrollOpen();
+#define ENROLL_WINDOW_MS (10UL * 60UL * 1000UL)
 void fmtK(int k, char *b, size_t n);
 void sdBegin(); void sdLoop(); int sdLoadHistory(uint8_t *out, int maxPoints);
 extern bool sdUp; extern uint32_t sdSizeMB;
@@ -113,7 +114,7 @@ extern char netOut[12]; extern char netComp[8]; extern char netOther[84]; extern
 
 struct BandStyle { const char *l1, *l2; uint16_t bg, fg; const uint16_t *spr; };
 enum Headline { H_NOLINK, H_IDLE, H_WORKING, H_DONE, H_NEEDS, H_LIMITED, H_OUTAGE };
-enum Page { PG_OVERVIEW, PG_SESSIONS, PG_BURN, PG_LIMITS, PG_STATS, PG_API, PG_ABOUT, PG_COUNT };
+enum Page { PG_OVERVIEW, PG_SESSIONS, PG_BURN, PG_LIMITS, PG_STATS, PG_API, PG_ENROLL, PG_ABOUT, PG_COUNT };
 
 char rx[1024]; uint16_t rxLen = 0; bool rxSkip = false;
 unsigned long lastRx = 0, rxAt = 0, stateChangedAt = 0;
@@ -736,6 +737,34 @@ void pageApi() {
   }
 }
 
+// Enrolling another Mac. This began as a takeover of the About page during the enrollment
+// window, which meant the instructions existed only in the ten minutes after power-up and
+// vanished without trace before anyone went looking for them. A page of its own is always
+// there, and says which of the two states it is in.
+void pageEnroll() {
+  char b[36];
+  textAt(6, 6, "ENROLL A MAC", 2, C_DIM);
+  if (!wifiUp) {
+    textAt(6, 40, "no wifi", 3, C_DIM);
+    textAt(6, 76, "the board has to be on", 2, C_DIM);
+    textAt(6, 96, "the network to do this", 2, C_DIM);
+    return;
+  }
+  textAt(6, 34, "run this on the new mac:", 2, C_DIM);
+  snprintf(b, sizeof b, "curl -fsSL %s", netIp());   textAt(6, 60, b, 2, C_TXT);
+  textAt(6, 80, "/install.sh | sh", 2, C_TXT);
+  if (enrollOpen()) {
+    snprintf(b, sizeof b, "code %lu", (unsigned long)enrollCode);
+    textAt(6, 110, b, 3, C_AMBER);                   // it asks for this
+    int left = (int)((ENROLL_WINDOW_MS - millis()) / 60000UL) + 1;
+    snprintf(b, sizeof b, "%dm left", left);
+    textRight(118, b, 2, C_DIM);
+  } else {
+    textAt(6, 110, "power-cycle for a code", 2, C_AMBER);
+    textAt(6, 134, "the window is 10 min", 2, C_DIM);
+  }
+}
+
 void pageAbout() {
   char b[28];
   int lx = 6, rx0 = landscape() ? 160 : 6;
@@ -748,18 +777,6 @@ void pageAbout() {
   // Clock and uptime share a row so the address below can have one to itself.
   snprintf(b, sizeof b, "%s up %lum", clockStr(), millis() / 60000UL);
   textAt(lx, ly + 20, b, 2, C_DIM);
-  // For ten minutes after power-up the board will enroll another Mac, and the command that
-  // does it is the useful thing to be showing. It is too wide for this panel on one line, so
-  // it wraps; it is one command. The code in it is the whole security story: the only way to
-  // know this URL is to be standing here looking at it.
-  if (wifiUp && enrollOpen()) {
-    textAt(lx, ly + 40, "ENROLL", 2, C_AMBER);
-    snprintf(b, sizeof b, "curl -fsSL %s", netIp());          textAt(lx, ly + 60, b, 2, C_TXT);
-    textAt(lx, ly + 80, "/install.sh | sh", 2, C_TXT);
-    snprintf(b, sizeof b, "code %lu", (unsigned long)enrollCode);
-    textAt(lx, ly + 100, b, 2, C_AMBER);                      // it will ask for this
-    return;                                  // the rest keeps for the other 23h50m
-  }
   textAt(lx, ly + 40, nightMode() ? "night mode" : "day mode", 2, C_DIM);
   snprintf(b, sizeof b, "sessions %d", S.n);                  textAt(lx, ly + 60, b, 2, C_DIM);
   // Last row on purpose: an address is the widest thing on this page, and the button column
@@ -880,6 +897,7 @@ void render() {
     case PG_LIMITS: pageLimits(); break;
     case PG_STATS:  pageStats();  break;
     case PG_API:    pageApi();    break;
+    case PG_ENROLL: pageEnroll(); break;
     case PG_ABOUT:  pageAbout();  break;
     default:        pageOverview();
   }
