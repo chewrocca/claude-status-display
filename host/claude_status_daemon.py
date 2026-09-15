@@ -112,16 +112,74 @@ def attention():
             ts = m
         if now - max(m, ts) > IDLE_AFTER_S:   # session died without SessionEnd
             continue
-        entries.append((os.path.splitext(os.path.basename(f))[0],
-                        d.get("state") or "idle",   # a truncated/garbled file must not shout
-                        ts, d.get("cwd") or ""))
-    newest = max((e[2] for e in entries), default=0)
+        entries.append({"sid": os.path.splitext(os.path.basename(f))[0],
+                        "state": d.get("state") or "idle",   # a garbled file must not shout
+                        "ts": ts, "cwd": d.get("cwd") or "",
+                        "transcript": d.get("transcript") or "", "effort": d.get("effort") or ""})
+    newest = max((e["ts"] for e in entries), default=0)
     for s in ("needs_input", "working", "done"):
-        owners = [e for e in entries if e[1] == s]
+        owners = [e for e in entries if e["state"] == s]
         if owners:
-            o = max(owners, key=lambda e: e[2])     # most recent of that state owns the headline
-            return s, newest, len(entries), o[0], o[3]
-    return "idle", newest, len(entries), "", ""
+            o = max(owners, key=lambda e: e["ts"])  # most recent of that state owns the headline
+            return s, newest, len(entries), o
+    return "idle", newest, len(entries), {}
+
+
+_transcript_cache = {}
+
+
+def transcript_tail(path, tail_bytes=65536):
+    """Model and context tokens from a session's transcript.
+
+    A window running in the desktop app fires hooks but never mirrors a status line, so this
+    is the only route to its numbers. Every assistant record carries a usage block; the last
+    one holds the current context. Only the tail is read, and the result is cached against
+    the file's size and mtime, because this runs on every daemon tick.
+    """
+    if not path:
+        return {}
+    try:
+        st = os.stat(path)
+    except OSError:
+        return {}
+    key = (path, st.st_mtime, st.st_size)
+    hit = _transcript_cache.get("k")
+    if hit == key:
+        return _transcript_cache.get("v") or {}
+    out = {}
+    try:
+        with open(path, "rb") as fh:
+            if st.st_size > tail_bytes:
+                fh.seek(st.st_size - tail_bytes)
+                fh.readline()                      # drop the partial line the seek landed in
+            lines = fh.read().decode("utf-8", "replace").splitlines()
+    except OSError:
+        return {}
+    for line in reversed(lines):
+        try:
+            d = json.loads(line)
+        except Exception:
+            continue
+        if d.get("type") != "assistant":
+            continue
+        m = d.get("message") or {}
+        u = m.get("usage") or {}
+        if not u:
+            continue
+        def n(k):
+            try: return int(u.get(k) or 0)
+            except (TypeError, ValueError): return 0
+        out = {
+            # What the next request will have to carry: the prompt, whatever was served from
+            # cache, and whatever was just written into it. Output is not part of the window.
+            "ctx_tokens": n("input_tokens") + n("cache_read_input_tokens") + n("cache_creation_input_tokens"),
+            "model": m.get("model") or "",
+            "ver": str(d.get("version") or "")[:8],
+            "cwd": d.get("cwd") or "",
+        }
+        break
+    _transcript_cache["k"], _transcript_cache["v"] = key, out
+    return out
 
 
 def session_for(sid):
@@ -228,9 +286,19 @@ class StatusPoller(threading.Thread):
 
 
 def short_model(name):
-    """Tidy the model name for the band: 'Opus 5 (1M context)' -> 'Opus 5'."""
+    """Tidy the model name for the band: 'Opus 5 (1M context)' -> 'Opus 5'.
+
+    Transcripts carry an id rather than a display name ('claude-fable-5-1'), because that is
+    the only form a hook-only session can give us. Turn it into the same shape.
+    """
     n = (name or "").split(" (")[0].strip()
-    if n.lower().startswith("claude "):
+    if n.lower().startswith("claude-"):                       # an id: claude-fable-5-1
+        parts = n[7:].split("-")
+        if parts and parts[0]:
+            fam = parts[0].capitalize()
+            rest = ".".join(x for x in parts[1:] if x.isdigit())
+            n = f"{fam} {rest}".strip()
+    elif n.lower().startswith("claude "):
         n = n[7:]                      # the device is obviously showing Claude
     return n[:12]
 
@@ -391,13 +459,13 @@ def record_history(weekly_pct, weekly_reset):
 
 def build_payload(poller):
     now = time.time()
-    state, att_ts, n, owner, owner_cwd = attention()
+    state, att_ts, n, owner = attention()
     # The window that owns the headline owns the numbers. A session running in the desktop
     # app fires hooks but never mirrors a status line, because that surface draws its own
     # usage panel rather than running one. Taking the newest *other* window's context and
     # cost and showing them under this one's name was the device reporting one session's
     # work as another's, which is worse than reporting nothing.
-    sl, mtime = session_for(owner)
+    sl, mtime = session_for(owner.get("sid"))
     mine = sl is not None
     if not mine and not owner:
         # Nothing is running at all. There is no other session for these to be confused
@@ -445,11 +513,22 @@ def build_payload(poller):
                 p["pace"] = pace
         p["quiet"] = QUIET_BELOW
     if not mine:
-        # Name the window actually driving the display, and leave its numbers empty rather
-        # than borrowed. The gauges draw "--" for a negative percentage.
+        # No status line, so no percentage: the transcript gives tokens but not the size of
+        # the window they sit in, and the model id it carries drops the variant marker that
+        # would say which. Send the count and let the gauge show that instead.
         p["ctx"] = -1
-        if owner_cwd:
-            p["dir"] = os.path.basename(owner_cwd)[:20]
+        t = transcript_tail(owner.get("transcript"))
+        if t.get("ctx_tokens"):
+            p["ctxt"] = round(t["ctx_tokens"] / 1000)
+        if t.get("model"):
+            p["model"] = short_model(t["model"])
+        if t.get("ver"):
+            p["ver"] = t["ver"]
+        if owner.get("effort"):
+            p["eff"] = owner["effort"][:10]
+        name = os.path.basename(t.get("cwd") or owner.get("cwd") or "")
+        if name:
+            p["dir"] = name[:20]
         elif sl:                                     # idle desk: name the last window seen
             p["dir"] = (sl.get("session_name")
                         or os.path.basename((sl.get("workspace") or {}).get("current_dir") or ""))[:20]

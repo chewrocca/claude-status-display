@@ -2,9 +2,10 @@
 # Claude Code hook: record per-session whether Claude is working or waiting on
 # the user, for the ESP32 status display daemon. Reads the hook JSON on stdin.
 input=$(cat)
-IFS=$'\037' read -r ev nt tool agent sid cwd < <(printf '%s' "$input" | jq -r '[
+IFS=$'\037' read -r ev nt tool agent sid cwd tpath eff < <(printf '%s' "$input" | jq -r '[
   (.hook_event_name // ""), (.notification_type // ""), (.tool_name // ""),
-  (.agent_id // ""), (.session_id // "default"), (.cwd // "")
+  (.agent_id // ""), (.session_id // "default"), (.cwd // ""),
+  (.transcript_path // ""), (.effort.level // "")
 ] | join("\u001f")')
 
 dir="$HOME/.claude/esp32-status/attention"
@@ -32,9 +33,12 @@ case "$ev" in
 esac
 tmp=$(mktemp "$dir/$sid.XXXXXX") || exit 0
 # jq builds the JSON so a tool or notification name containing a quote cannot corrupt it
-# cwd travels with the state so the daemon can name a window that fires hooks but never
-# mirrors its status line. Without it such a session shows up as eight hex characters.
+# cwd, the transcript path and the effort travel with the state, because a window running in
+# the desktop app fires these hooks but never mirrors a status line. The transcript is where
+# its token counts and model live, so this is the only route to them.
 jq -n --arg state "$state" --arg event "$ev" --arg detail "${nt:-$tool}" --arg cwd "$cwd" \
-      --argjson ts "$(date +%s)" '{state:$state, event:$event, detail:$detail, cwd:$cwd, ts:$ts}' > "$tmp" \
+      --arg transcript "$tpath" --arg effort "$eff" --argjson ts "$(date +%s)" \
+      '{state:$state, event:$event, detail:$detail, cwd:$cwd,
+        transcript:$transcript, effort:$effort, ts:$ts}' > "$tmp" \
   && mv -f "$tmp" "$file" || rm -f "$tmp"
 exit 0

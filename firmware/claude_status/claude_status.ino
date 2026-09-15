@@ -94,12 +94,14 @@ struct Status {
   struct Sess { char name[14]; char st; int wait; float cost; int ctx; } sess[4];
   int nsess = 0, nrows = 0, nblk = 0, blkw = 0, nwork = 0, nrdy = 0;
   int cxm = -1;                    // minutes until the prompt cache expires, -1 unknown
+  int ctxt = 0;                    // context tokens (thousands) when there is no percentage
   char ver[10] = "", cwin[8] = "";
   long ts = 0;
 } S;
 
 const char *clockStr();
 const char *netIp();
+void fmtK(int k, char *b, size_t n);
 void sdBegin(); void sdLoop(); int sdLoadHistory(uint8_t *out, int maxPoints);
 extern bool sdUp; extern uint32_t sdSizeMB;
 void netBegin(); void netLoop(); void netForcePoll(); void netCommand(JsonDocument &doc); void netReport(); void bleNotifyState();
@@ -396,7 +398,9 @@ void gaugePortrait(int y, const char *label, int pct, const char *inside) {   //
   textAt(6, y + 12, label, 2, C_DIM);
   if (!strcmp(label, "CTX") && S.cwin[0])
     textAt(6 + textW(label, 2) + 8, y + 12, S.cwin, 2, C_DIM);
-  if (pct >= 0) snprintf(num, sizeof num, "%d%%", pct); else strcpy(num, "--");
+  if (pct >= 0)                                    snprintf(num, sizeof num, "%d%%", pct);
+  else if (!strcmp(label, "CTX") && S.ctxt > 0)    fmtK(S.ctxt, num, sizeof num);
+  else                                             strcpy(num, "--");
   textRight(y, num, 4, col);
   bar(6, y + 34, W() - 12, 20, pct, col, inside);
 }
@@ -408,7 +412,9 @@ void gaugeLandscape(int y, const char *label, int pct, const char *inside) {  //
   // A context percentage means nothing without the size of the window it is a percentage of.
   if (!strcmp(label, "CTX") && S.cwin[0])
     textAt(x + textW(label, 2) + 8, y + 4, S.cwin, 2, C_PANEL == 0 ? C_DIM : C_DIM);
-  if (pct >= 0) snprintf(num, sizeof num, "%d%%", pct); else strcpy(num, "--");
+  if (pct >= 0)                                    snprintf(num, sizeof num, "%d%%", pct);
+  else if (!strcmp(label, "CTX") && S.ctxt > 0)    fmtK(S.ctxt, num, sizeof num);
+  else                                             strcpy(num, "--");
   textRight(y, num, 3, col);
   bar(x, y + 26, w, 16, pct, col, inside);
 }
@@ -662,8 +668,10 @@ void pageStats() {                                   // the useful part of /usag
     } else {
       textAt(x, 118, S.cw ? "warm" : "cold", 2, S.cw ? C_GREEN : C_DIM);
     }
-    if (S.cwin[0]) snprintf(b, sizeof b, "ctx %d%% of %s  cc %s", S.ctx < 0 ? 0 : S.ctx, S.cwin, S.ver);
-    else           snprintf(b, sizeof b, "ctx %d%%  cc %s", S.ctx < 0 ? 0 : S.ctx, S.ver);
+    if (S.ctx < 0 && S.ctxt > 0) { char k[10]; fmtK(S.ctxt, k, sizeof k);
+                                   snprintf(b, sizeof b, "ctx %s  cc %s", k, S.ver); }
+    else if (S.cwin[0]) snprintf(b, sizeof b, "ctx %d%% of %s  cc %s", S.ctx < 0 ? 0 : S.ctx, S.cwin, S.ver);
+    else                snprintf(b, sizeof b, "ctx %d%%  cc %s", S.ctx < 0 ? 0 : S.ctx, S.ver);
     textAt(6, H() - 20, b, 2, C_DIM);
   } else {
     textAt(6, 6, "SESSION", 2, C_DIM);
@@ -1035,6 +1043,7 @@ void handleLine(const char *line) {
   S.nwork = doc["nwork"] | 0;
   S.nrdy  = doc["nrdy"]  | 0;
   S.cxm   = doc["cxm"]   | -1;
+  S.ctxt  = doc["ctxt"]  | 0;
   S.blkw  = doc["blkw"]  | 0;
   S.nrows = 0;
   for (JsonObjectConst r : doc["sess"].as<JsonArrayConst>()) {

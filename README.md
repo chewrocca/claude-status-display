@@ -72,6 +72,14 @@ No polling, no API key, no scraping. Two documented interfaces already publish e
   `permission_prompt` or `elicitation_dialog` type fires when a dialog has been waiting.
   `PreToolUse` matched on `AskUserQuestion` catches Claude asking you something. Each writes
   a small file. See `host/esp32-status-hook.sh`.
+- **The transcript**, for sessions that run no status line. Claude Code in the desktop app
+  fires hooks but draws its own usage panel instead of running a status line command, so no
+  payload ever appears for it. The hook passes on `transcript_path`, and every assistant
+  record in that file carries a `usage` block, so the context tokens, model and version can
+  be read from its tail. Rate limits are not in there and are not available any other way, so
+  those gauges stay empty for such a session. The context gauge shows a token count rather
+  than a percentage, because the transcript gives tokens but not the size of the window they
+  sit in: its model id drops the marker that would say whether it is 200K or 1M.
 
 A daemon merges the two and pushes one JSON line to whatever you want to drive. Swap out
 the last step and the rest carries over unchanged.
