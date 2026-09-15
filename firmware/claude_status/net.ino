@@ -376,7 +376,7 @@ void httpDashboard() {
     "      <span id=pacew style='font-size:13px; font-weight:bold;'></span></div>"
     "    <div style='font-size:12px; color:#999; margin-top:4px;'><span id=burnused>–</span> used &middot; <span id=burnleft>–</span> left</div>"
     "    <div id=proj style='font-size:13px; font-weight:bold; margin-top:8px;'>–</div>"
-    "    <div style='font-size:11px; color:#666;'>aim to finish the week near 100%</div>"
+    "    <div id=advice style='font-size:11px; color:#999; line-height:1.4; margin-top:2px;'>aim to finish the week near 100%</div>"
     "    <svg id=spark viewBox='0 0 300 80' preserveAspectRatio=none style='width:100%; height:80px; margin-top:10px;'></svg>"
     "    <div id=sparknote style='font-size:11px; color:#666; margin-top:4px;'></div>"
     "  </div>"
@@ -415,6 +415,33 @@ void httpDashboard() {
     "function wait(s){if(s<60)return s+'s';if(s<3600)return Math.floor(s/60)+'m';"
     "if(s<86400)return Math.floor(s/3600)+'h';return Math.floor(s/86400)+'d';}"
     "function esc(s){return String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}"
+    // What to do about the projection, in terms of the two dials that actually move it: the
+    // model and the effort level. The advice names the current setting, so it never suggests
+    // raising an effort already at the top or dropping one already at the bottom.
+    "const EFF=['low','medium','high'];"
+    "function advise(d,end){"
+    "  const e=EFF.indexOf((d.eff||'').toLowerCase()),m=(d.model||'').split(' ')[0].toLowerCase();"
+    "  const up=e>=0&&e<EFF.length-1?EFF[e+1]:'',dn=e>0?EFF[e-1]:'';"
+    "  const big=m==='opus',small=m==='haiku';"
+    // A spent 5-hour window blocks you within the hour, whatever the week says, so it is the
+    // advice that matters until it resets.
+    "  if(d.lim)return 'Rate limited now. Nothing to tune until it clears.';"
+    "  if(d.h5>=85)return '5-hour window nearly spent — it resets at '+(d.h5r||'the top of the window')"
+    "    +'. Lighter work until then.';"
+    "  if(end===null)return 'aim to finish the week near 100%';"
+    // Both dials can already be at the bottom: say so rather than recommending the model
+    // you are on, or an effort level you cannot go below.
+    "  const cheaper=big?'Move routine work to Sonnet':small?'':'Move routine work to Haiku';"
+    "  if(end>130)return 'Too fast to last the week. '+(cheaper?cheaper+(dn?', or drop effort to '+dn:'')+'.'"
+    "    :dn?'Drop effort to '+dn+'.':'Shorter sessions are the only dial left.');"
+    "  if(end>105)return 'Running hot. '+(dn?'Drop to '+dn+' effort':cheaper||'Fewer long sessions')"
+    "    +' to land near 100%.';"
+    "  if(end>=85)return 'On target. Keep '+(d.model||'the current model')+(d.eff?' '+d.eff:'')+'.';"
+    "  if(end>=60)return 'A little under. '+(up?up.charAt(0).toUpperCase()+up.slice(1)+' effort is affordable'"
+    "    :'Room to spare')+' on the hard ones.';"
+    "  return 'Well under — unspent allowance does not carry over. '"
+    "    +(up?'Try '+up+' effort':big?'No reason to hold back':small?'Opus is affordable at this rate':'Opus is affordable')+'.';"
+    "}"
     "function left(m){if(m<0)return '–';if(m<60)return m+'m';"
     "if(m<2880)return Math.floor(m/60)+'h'+String(m%60).padStart(2,'0')+'m';"
     "return Math.floor(m/1440)+'d '+Math.floor((m%1440)/60)+'h';}"
@@ -485,10 +512,12 @@ void httpDashboard() {
     // lands. Allowance left unspent at the reset is gone, so the number worth watching is
     // the one the current rate projects onto, and 100% is the target it should approach.
     "  const gone=10080-(d.wkm>=0?d.wkm:10080),el=document.getElementById('proj');"
+    "  let end=null;"
     "  if(d.wk<0||gone<360){el.textContent='projecting…';el.style.color='#666';}"
-    "  else{const end=Math.round(d.wk*10080/gone);"
+    "  else{end=Math.round(d.wk*10080/gone);"
     "    el.textContent='on track for '+end+'% by '+(d.wkr||'reset');"
     "    el.style.color=end>105?'#ff9500':end>=85?'#2ecc71':end>=60?'#ffc800':'#888';}"
+    "  document.getElementById('advice').textContent=advise(d,end);"
     // The board ranks these rows by who is blocked and for how long, so render them in the
     // order they arrive: the top one is the thing to do next.
     "  const rows=d.sess||[];"
