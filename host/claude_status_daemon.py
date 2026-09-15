@@ -37,10 +37,6 @@ TOKEN_FILE = os.path.join(STATE, "token")
 HTTP_RETRY_S = 10
 HTTP_TIMEOUT_S = 8        # mDNS resolution alone can take 5 s on a cold cache
 SERIAL_COOLDOWN_S = 300   # a port that never acknowledges is not our board; stop poking it
-HISTORY_FILE = os.path.join(STATE, "history.json")
-HISTORY_EVERY_S = 300     # one sample per 5 minutes is plenty for a 7-day window
-HISTORY_POINTS = 32       # samples sent to the device; it has 208 px to draw them in
-WEEK_S = 7 * 24 * 3600
 QUIET_BELOW = 70          # a gauge under this needs no space; nothing is decided at 31%
 MAX_SESSIONS = 4          # rows that fit the panel; the rest are summarised as a count
 ABANDONED_AFTER_S = 1800  # finished this long ago is not waiting on you, it is over
@@ -133,30 +129,68 @@ _identity_cache = {}
 # cannot be read off the id: "claude-opus-5[1m]" carries a marker because Opus also runs at
 # 200K, while "claude-fable-5-1" carries none and is 1M all the same. So never infer it.
 # Watch what a status line reports for each model and remember that instead.
-WINDOWS_FILE = os.path.join(STATE, "model-windows.json")
-_windows = None
+# The board holds it, not this machine. It is the only always-on part of this and the only
+# one every machine talks to, so a laptop that has never run a given model in a terminal
+# still gets a real percentage as soon as it connects. LEGACY_FILE is read once, pushed up,
+# and deleted; nothing writes it again.
+LEGACY_FILE = os.path.join(STATE, "model-windows.json")
+_windows = {}
+_windows_dirty = False
+_windows_adopted = False   # do not push upward before hearing what the board already knows
 
 
 def windows_map():
-    global _windows
-    if _windows is None:
-        m = read_json(WINDOWS_FILE)
-        _windows = m if isinstance(m, dict) else {}
     return _windows
+
+
+def adopt_windows(m):
+    """Take the board's copy as the truth, keeping anything it has not heard about yet."""
+    global _windows_dirty, _windows_adopted
+    _windows_adopted = True
+    if not isinstance(m, dict):
+        return
+    merged = dict(m)
+    for k, v in _windows.items():
+        if k not in merged:
+            merged[k] = v
+            _windows_dirty = True
+    _windows.clear()
+    _windows.update(merged)
+
+
+def migrate_local_state():
+    """One-off: carry an old on-disk map up to the board, then keep nothing here.
+
+    The weekly curve moved to the board at the same time and its file is simply dropped; the
+    board rebuilds the week from the payloads that follow.
+    """
+    global _windows_dirty
+    m = read_json(LEGACY_FILE)
+    if isinstance(m, dict) and m:
+        _windows.update(m)
+        _windows_dirty = True
+        log(f"migrating {len(m)} model window sizes to the board")
+    for stale in (LEGACY_FILE, os.path.join(STATE, "history.json")):
+        try:
+            os.remove(stale)
+        except OSError:
+            pass
+
+
+def windows_dirty():
+    return _windows_dirty and _windows_adopted
+
+
+def clear_windows_dirty():
+    global _windows_dirty
+    _windows_dirty = False
 
 
 def forget_window(name):
     """Drop a mapping the evidence contradicts, so it can be learned again correctly."""
-    m = windows_map()
-    if m.pop(name, None) is None:
-        return
-    try:
-        tmp = WINDOWS_FILE + ".tmp"
-        with open(tmp, "w") as fh:
-            json.dump(m, fh, indent=1)
-        os.replace(tmp, WINDOWS_FILE)
-    except OSError:
-        pass
+    global _windows_dirty
+    if _windows.pop(name, None) is not None:
+        _windows_dirty = True
 
 
 def learn_window(sl):
@@ -168,17 +202,11 @@ def learn_window(sl):
         return
     if not name or size <= 0:
         return
-    m = windows_map()
-    if m.get(name) == size:
+    global _windows_dirty
+    if _windows.get(name) == size:
         return
-    m[name] = size
-    try:
-        tmp = WINDOWS_FILE + ".tmp"
-        with open(tmp, "w") as fh:
-            json.dump(m, fh, indent=1)
-        os.replace(tmp, WINDOWS_FILE)
-    except OSError:
-        pass
+    _windows[name] = size
+    _windows_dirty = True
 
 
 def transcript_identity(path, base_model):
@@ -521,56 +549,6 @@ def session_rows():
     return rows
 
 
-def record_history(weekly_pct, weekly_reset):
-    """Append a weekly-usage sample, pruned to the current window. Returns (series, pace).
-
-    pace is percentage points ahead of a linear burn: +12 means you have spent 12 points
-    more of the weekly budget than simply being this far through the week would predict.
-    That is the number worth acting on. The raw percentage is not.
-    """
-    now = time.time()
-    try:
-        hist = json.load(open(HISTORY_FILE))
-        if not isinstance(hist, list):
-            hist = []
-    except Exception:
-        hist = []
-
-    if not weekly_reset:
-        return [], None
-    start = weekly_reset - WEEK_S
-    # A reset drops everything from the previous window; the series is per window.
-    hist = [h for h in hist if isinstance(h, list) and len(h) == 2 and start <= h[0] <= now]
-    if not hist or now - hist[-1][0] >= HISTORY_EVERY_S:
-        hist.append([int(now), int(weekly_pct)])
-        try:
-            tmp = HISTORY_FILE + ".tmp"
-            with open(tmp, "w") as f:
-                json.dump(hist[-4000:], f)
-            os.replace(tmp, HISTORY_FILE)
-        except OSError as e:
-            log(f"history write failed: {e}")
-
-    elapsed = max(0.0, min(1.0, (now - start) / WEEK_S))
-    pace = int(round(weekly_pct - elapsed * 100))
-
-    # Downsample to a fixed width by bucketing over the window, so the x axis is time
-    # rather than sample count and a gap in sampling reads as a flat stretch.
-    if len(hist) < 2:
-        return [], pace
-    series = []
-    last = hist[0][1]
-    for i in range(HISTORY_POINTS):
-        lo = start + WEEK_S * i / HISTORY_POINTS
-        hi = start + WEEK_S * (i + 1) / HISTORY_POINTS
-        if lo > now:
-            break
-        vals = [v for t, v in hist if lo <= t < hi]
-        last = max(vals) if vals else last
-        series.append(last)
-    return series, pace
-
-
 def build_payload(poller):
     now = time.time()
     state, att_ts, n, owner = attention()
@@ -620,16 +598,9 @@ def build_payload(poller):
                 "cost": round(float((sl.get("cost") or {}).get("total_cost_usd") or 0), 2),
                 **session_stats(sl),
             })
-        try:
-            reset_at = float((rl.get("seven_day") or {}).get("resets_at") or 0)
-        except (TypeError, ValueError):
-            reset_at = 0
-        if wk >= 0 and reset_at:
-            series, pace = record_history(wk, reset_at)
-            if series:
-                p["hist"] = series
-            if pace is not None:
-                p["pace"] = pace
+        # The weekly curve and the pace are the board's now. It has the week's position from
+        # wk and wkm, it is the thing that is always on, and keeping the samples here made the
+        # curve belong to whichever laptop happened to be awake.
         p["quiet"] = QUIET_BELOW
     if not mine:
         # No status line, so no percentage: the transcript gives tokens but not the size of
@@ -761,6 +732,13 @@ def handle_device(ser, poller, buf):
             log(f"device acknowledged payload ts={msg.get('ok')} st={msg.get('st')}")
         elif "hello" in msg:
             log(f"device hello fw={msg.get('fw')}")
+            try:
+                ser.write(b'{"cmd":"win"}\n')    # what does the board already know?
+            except Exception:
+                pass
+        elif "win" in msg:
+            adopt_windows(msg.get("win"))
+            log(f"board knows {len(windows_map())} model window sizes")
         elif "err" in msg:
             log(f"device rejected payload: {msg}")
         if VERBOSE:
@@ -774,6 +752,7 @@ handle_device.acked = False
 def main():
     os.makedirs(SESSIONS, exist_ok=True)
     os.makedirs(ATTENTION, exist_ok=True)
+    migrate_local_state()
     poller = StatusPoller()
     poller.start()
     http = HttpLink()
@@ -800,14 +779,18 @@ def main():
                     ser, last_key = None, None
                     serial_blocked_until = time.time() + SERIAL_COOLDOWN_S
             payload = build_payload(poller)
+            if windows_dirty():
+                payload["win"] = windows_map()   # the board is where this is kept
             key = {k: v for k, v in payload.items() if k not in ("age", "hm")}
             now = time.time()
             if key != last_key or now - last_sent >= HEARTBEAT_S:
                 if ser is not None:
                     ser.write((json.dumps(payload, separators=(",", ":")) + "\n").encode())
                     last_sent, last_key = now, key
+                    clear_windows_dirty()
                 elif http.send(payload):
                     last_sent, last_key = now, key
+                    clear_windows_dirty()
                 if VERBOSE:
                     log(payload)
             time.sleep(0.5 if ser is not None else 1.0)

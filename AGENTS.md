@@ -123,6 +123,12 @@ With several sessions open, the rule that works:
   "Opus 5 (1M context)". Let the tokens veto the map, since a session holding more context
   than its supposed window has proved that is not its window; drop the entry and count tokens
   until it is learned again.
+- **What the display learns belongs on the display.** Window sizes and the weekly curve are
+  kept in the board's own flash, not in a file on whichever laptop happened to see them first.
+  The board is the only always-on participant and the only one every machine talks to, so this
+  is also what makes a second machine useful rather than a second source of truth. Merge such
+  state on the board, never replace it: a host that has just started knows nothing yet, and its
+  first payload would otherwise erase what every other machine taught it.
 - **Rate limits are the one thing with no local source but the status line.** They are in no
   hook field and nowhere in a transcript. Borrow them from whichever window last asked, since
   every window spends the same account allowance, and carry the age so an old reading can be

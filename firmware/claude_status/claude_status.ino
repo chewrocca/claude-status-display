@@ -1011,8 +1011,62 @@ void copyStr(char *dst, size_t n, JsonVariantConst v, const char *dflt) {
 }
 
 // host commands: shot (dump framebuffer), tap / hold / rotate (simulate the button)
+// The board is the only always-on part of this and the only one every machine talks to, so
+// it is where the things the display learns belong. Model window sizes are one of those: a
+// transcript never states them, so they are learned from a status line and would otherwise
+// sit in a file on whichever laptop happened to see one first. Kept here, a machine that has
+// never run that model in a terminal still gets a real percentage on its first payload.
+// The weekly curve is the board's too, for the same reason: it is the one participant that
+// is always on. The host used to keep the samples in a file and send a finished curve, which
+// meant the curve belonged to whichever laptop had been awake. Kept here it survives that
+// laptop sleeping, being closed, or being a different laptop.
+//
+// No clock is needed. The payload says how many minutes are left in the week, which places a
+// reading on the week's axis exactly, and a jump upward in that number is the week rolling
+// over. Saved on bucket changes, so a seven-day week costs 32 writes.
+#define WEEK_MINUTES (7L * 24 * 60)
+int histIdx = -1;
+unsigned long histSavedAt = 0;
+
+void histLoad() {
+  if (prefs.getBytesLength("hist") != HISTORY_POINTS) return;
+  prefs.getBytes("hist", S.hist, HISTORY_POINTS);
+  histIdx = prefs.getChar("histi", -1);
+  if (histIdx >= 0) { S.nhist = histIdx + 1; S.histAnchored = true; }
+}
+
+void histSave() {
+  prefs.putBytes("hist", S.hist, HISTORY_POINTS);
+  prefs.putChar("histi", (int8_t)histIdx);
+  histSavedAt = millis();
+}
+
+// Returns the pace: how far above an even spend the week is running.
+int histUpdate(int wk, int wkm) {
+  if (wk < 0 || wkm < 0) return 999;
+  long left = wkm > WEEK_MINUTES ? WEEK_MINUTES : wkm;
+  long elapsed = WEEK_MINUTES - left;
+  int idx = (int)(elapsed * HISTORY_POINTS / WEEK_MINUTES);
+  if (idx >= HISTORY_POINTS) idx = HISTORY_POINTS - 1;
+  if (idx < histIdx) { memset(S.hist, 0, sizeof S.hist); histIdx = -1; }   // week rolled over
+  for (int i = histIdx + 1; i <= idx; i++) S.hist[i] = (uint8_t)wk;        // carry any gap
+  if (wk > S.hist[idx]) S.hist[idx] = (uint8_t)wk;                         // usage only rises
+  bool moved = idx != histIdx;
+  histIdx = idx;
+  S.nhist = idx + 1;
+  S.histAnchored = true;
+  if (moved || millis() - histSavedAt > 300000UL) histSave();
+  return wk - (int)(elapsed * 100 / WEEK_MINUTES);
+}
+
+void sendWindows() {
+  String w = prefs.getString("win", "{}");
+  Serial.printf("{\"win\":%s}\n", w.c_str());
+}
+
 void handleCommand(const char *cmd) {
   if (!strcmp(cmd, "net")) { netReport(); return; }
+  if (!strcmp(cmd, "win")) { sendWindows(); return; }
   if (!strcmp(cmd, "apipoll")) { netForcePoll(); return; }
   if (!strcmp(cmd, "shot")) {
     render();
@@ -1036,6 +1090,31 @@ void handleLine(const char *line) {
   const char *cmd = doc["cmd"] | (const char *)NULL;
   if (cmd && !strcmp(cmd, "wifi")) { netCommand(doc); return; }
   if (cmd) { handleCommand(cmd); return; }
+  // A payload may carry model window sizes the host has learned. Store them and they
+  // outlive that host: this is the board's memory, not the laptop's.
+  JsonVariantConst win = doc["win"];
+  if (!win.isNull() && win.is<JsonObjectConst>()) {
+    // Merge, never replace. A host that has just started knows nothing yet, and its first
+    // payload would otherwise erase what every other machine has taught this board.
+    JsonDocument cur;
+    deserializeJson(cur, prefs.getString("win", "{}"));
+    bool changed = false;
+    for (JsonPairConst kv : win.as<JsonObjectConst>()) {
+      if (cur[kv.key()].isNull() || cur[kv.key()] != kv.value()) {
+        cur[kv.key()] = kv.value();
+        changed = true;
+      }
+    }
+    if (changed) {
+      String out;
+      serializeJson(cur, out);
+      if (out.length() < 1024) {
+        prefs.putString("win", out);
+        Serial.printf("{\"win_saved\":%u}\n", (unsigned)cur.size());
+      }
+    }
+    if (doc.size() == 1) return;                 // a windows-only push carries no state
+  }
   long ts = doc["ts"] | 0L;
   if (!ts) { Serial.printf("{\"err\":\"no ts\",\"keys\":%u}\n", (unsigned)doc.size()); return; }
   S.ctx = doc["ctx"] | -1; S.h5 = doc["h5"] | -1; S.wk = doc["wk"] | -1;
@@ -1045,7 +1124,6 @@ void handleLine(const char *line) {
   S.lim = doc["lim"] | false;
   S.dur = doc["dur"] | 0; S.api = doc["api"] | 0; S.la = doc["la"] | 0; S.lr = doc["lr"] | 0;
   S.tin = doc["tin"] | 0; S.tout = doc["tout"] | 0; S.ch = doc["ch"] | -1; S.cw = doc["cw"] | false;
-  S.pace = doc["pace"] | 999;
   S.nsess = doc["nsess"] | 0;
   S.nblk  = doc["nblk"]  | 0;
   S.nwork = doc["nwork"] | 0;
@@ -1066,12 +1144,8 @@ void handleLine(const char *line) {
     e.ctx = r["x"] | -1;
   }
   S.quiet = doc["quiet"] | 70;
-  S.nhist = 0;
-  for (JsonVariantConst v : doc["hist"].as<JsonArrayConst>()) {
-    if (S.nhist >= (int)sizeof S.hist) break;
-    S.hist[S.nhist++] = (uint8_t)constrain(v.as<int>(), 0, 100);
-  }
-  S.histAnchored = S.nhist > 0;
+  // The curve lives here now, so a payload only has to say where the week stands.
+  S.pace = histUpdate(S.wk, S.wkm);
   copyStr(S.ver, sizeof S.ver, doc["ver"], "");
   copyStr(S.cwin, sizeof S.cwin, doc["cwin"], "");
   bool hostNight = doc["night"] | false;
@@ -1153,7 +1227,8 @@ void setup() {
   tft.invertDisplay(true);
   applyRotation();
   sdBegin();
-  if (sdUp && S.nhist == 0) { S.nhist = sdLoadHistory(S.hist, sizeof S.hist); S.histAnchored = false; }
+  histLoad();                                          // the board's own weekly curve
+  if (S.nhist == 0 && sdUp) { S.nhist = sdLoadHistory(S.hist, sizeof S.hist); S.histAnchored = false; }
   netBegin();
   stateChangedAt = millis();
   render();

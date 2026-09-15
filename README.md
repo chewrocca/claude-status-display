@@ -86,14 +86,20 @@ No polling, no API key, no scraping. Two documented interfaces already publish e
   a transcript states it, and it cannot be read off the model id, since `claude-opus-5[1m]`
   carries a marker only because Opus also runs at 200K while `claude-fable-5-1` carries none
   and is 1M regardless. So sizes are learned from status line payloads, matched on the model's
-  display name, and kept in `~/.claude/esp32-status/model-windows.json`. A model never seen in
-  a terminal shows its token count instead of a guessed percentage. The file is plain JSON, so
-  you can fill one in yourself, which you will need to: the app names models without the
-  variant suffix the terminal uses, calling the same thing "Opus 5" that the terminal calls
-  "Opus 5 (1M context)", so the two do not always meet in the middle. A mapping the evidence
-  contradicts is thrown away rather than believed: if a session is holding more context than
-  its supposed window, that is not its window, and the gauge goes back to counting tokens
-  until the size is learned again.
+  display name, and **kept on the board**, not here. It is the only always-on part of this and
+  the only one every machine talks to, so a laptop that has never run a model in a terminal
+  still gets a real percentage as soon as it connects, and a fresh machine inherits the lot by
+  plugging in. A model the board has never been told about shows its token count instead of a
+  guessed percentage. The two surfaces do not always name a model the same way, the app calling
+  "Opus 5" what the terminal calls "Opus 5 (1M context)", so sometimes one has to be taught
+  directly: `{"win":{"Opus 5":1000000}}` on the serial line, or in a `POST /status` body. A
+  mapping the evidence contradicts is thrown away rather than believed: a session holding more
+  context than its supposed window has proved that is not its window.
+
+The weekly curve lives on the board too. A payload says how much of the week is spent and how
+long is left, which places a reading on the week's axis without needing a clock, and the board
+keeps the buckets in its own flash. The curve therefore survives the laptop sleeping, being
+closed, or being a different laptop.
 
 A daemon merges the two and pushes one JSON line to whatever you want to drive. Swap out
 the last step and the rest carries over unchanged.
