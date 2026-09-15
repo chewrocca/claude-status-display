@@ -243,21 +243,64 @@ void httpInfo() {
 }
 
 // --- live status API (JSON) ------------------------------------------------------------------
+// A session name is a directory basename, so it can hold characters that would end the string
+// early. Copy it a byte at a time and drop what JSON cannot carry bare.
+static void jsonStr(char *out, size_t n, const char *in) {
+  size_t o = 0;
+  for (size_t i = 0; in[i] && o + 1 < n; i++) {
+    unsigned char c = (unsigned char)in[i];
+    if (c == '"' || c == '\\' || c < 0x20) continue;
+    out[o++] = (char)c;
+  }
+  out[o] = 0;
+}
+
 void httpApiStatus() {
-  char b[1600];
+  // The same rows the board's SESSIONS page draws, so the dashboard's list is not a second
+  // answer to the question of what is running.
+  char sess[420]; size_t so = 0;
+  sess[so++] = '[';
+  for (int i = 0; i < S.nrows && i < (int)(sizeof S.sess / sizeof S.sess[0]); i++) {
+    Status::Sess &e = S.sess[i];
+    char name[28]; jsonStr(name, sizeof name, e.name);
+    char host[2] = {e.h ? e.h : ' ', 0};
+    int w = snprintf(sess + so, sizeof sess - so,
+                     "%s{\"name\":\"%s\",\"st\":\"%c\",\"wait\":%d,\"cost\":%.2f,\"ctx\":%d,\"h\":\"%s\"}",
+                     i ? "," : "", name, e.st ? e.st : 'i', e.wait, e.cost, e.ctx, e.h ? host : "");
+    if (w < 0 || so + (size_t)w >= sizeof sess - 2) break;   // leave room for the closing bracket
+    so += (size_t)w;
+  }
+  sess[so++] = ']'; sess[so] = 0;
+
+  // The weekly-burn series the board sparklines, so the page can draw the same curve rather
+  // than invent a trend of its own.
+  char hist[220]; size_t ho = 0;
+  hist[ho++] = '[';
+  for (int i = 0; i < S.nhist && i < (int)sizeof S.hist; i++) {
+    int w = snprintf(hist + ho, sizeof hist - ho, "%s%d", i ? "," : "", S.hist[i]);
+    if (w < 0 || ho + (size_t)w >= sizeof hist - 2) break;
+    ho += (size_t)w;
+  }
+  hist[ho++] = ']'; hist[ho] = 0;
+
+  char b[2600];
   snprintf(b, sizeof b,
     "{\"ctx\":%d,\"h5\":%d,\"wk\":%d,\"h5m\":%d,\"wkm\":%d,\"n\":%d,\"age\":%d,"
     "\"h5r\":\"%s\",\"wkr\":\"%s\",\"hm\":\"%s\",\"st\":\"%s\",\"out\":\"%s\","
     "\"inc\":\"%s\",\"comp\":\"%s\",\"model\":\"%s\",\"dir\":\"%s\",\"eff\":\"%s\","
     "\"cost\":%.2f,\"lim\":%s,\"night\":%s,\"cw\":%s,"
     "\"dur\":%d,\"api\":%d,\"la\":%d,\"lr\":%d,\"tin\":%d,\"tout\":%d,\"ch\":%d,\"cxm\":%d,"
-    "\"fw\":\"" FW_VERSION "\",\"clock\":\"%s\"}",
+    "\"fw\":\"" FW_VERSION "\",\"clock\":\"%s\","
+    "\"nsess\":%d,\"nblk\":%d,\"nrdy\":%d,\"nwork\":%d,\"hosts\":%d,\"sess\":%s,"
+    "\"pace\":%d,\"anch\":%s,\"hpts\":%d,\"hist\":%s}",
     S.ctx, S.h5, S.wk, S.h5m, S.wkm, S.n, S.age,
     S.h5r, S.wkr, S.hm, S.st, S.out,
     S.inc, S.comp, S.model, S.dir, S.eff,
     S.cost, S.lim ? "true" : "false", S.night ? "true" : "false", S.cw ? "true" : "false",
     S.dur, S.api, S.la, S.lr, S.tin, S.tout, S.ch, S.cxm,
-    clockStr());
+    clockStr(),
+    S.nsess, S.nblk, S.nrdy, S.nwork, liveHosts, sess,
+    S.pace, S.histAnchored ? "true" : "false", HISTORY_POINTS, hist);
   http.send(200, "application/json", b);
 }
 
@@ -269,12 +312,21 @@ void httpDashboard() {
     "<style>"
     "* { margin:0; padding:0; box-sizing:border-box; }"
     "body { font-family:system-ui,-apple-system,sans-serif; background:#0a0a0a; color:#eee; padding:20px; }"
-    ".grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:20px; margin-bottom:20px; }"
+    // Five panels never divide evenly into a grid's columns, so auto-fit kept stranding one
+    // of them alone on a second row beside a column of empty space. Flex lets whatever lands
+    // on the last row grow to fill it, so the page is balanced at every window width.
+    ".grid { display:flex; flex-wrap:wrap; gap:16px; margin-bottom:20px; align-items:stretch; }"
     ".panel { background:#1a1a1a; border:1px solid #333; border-radius:8px; padding:20px; }"
+    // 230px is the narrowest a panel gets before "Opus 5 medium" wraps into its own label,
+    // and five of them at that width fit any window from about 1220px up.
+    ".grid > .panel { flex:1 1 230px; min-width:0; }"
     ".panel h3 { color:#ffc800; margin-bottom:12px; font-size:14px; text-transform:uppercase; }"
-    ".stat { display:flex; justify-content:space-between; align-items:center; margin:8px 0; }"
+    // The gap and the right alignment are what keep a long value off its own label when the
+    // panel is at its narrowest: it wraps under itself instead of colliding.
+    ".stat { display:flex; justify-content:space-between; align-items:center; margin:8px 0; gap:12px; }"
     ".stat-label { color:#999; font-size:13px; }"
-    ".stat-value { font-weight:bold; color:#fff; font-size:16px; }"
+    ".stat-value { font-weight:bold; color:#fff; font-size:16px; text-align:right; }"
+    "#dir { text-align:right; }"
     ".gauge { width:100%; height:20px; background:#333; border-radius:4px; overflow:hidden; margin-top:4px; }"
     ".gauge-fill { height:100%; background:linear-gradient(90deg,#2ecc71,#ffc800); transition:width 0.3s; }"
     ".status-working { color:#1a9eff; font-weight:bold; }"
@@ -298,7 +350,7 @@ void httpDashboard() {
     "<h1 style='margin-bottom:30px; font-size:24px;'>Claude Status <span id=clock style='color:#999;'></span></h1>"
     "<div class=grid>"
     "  <div class=panel>"
-    "    <h3>Overview</h3>"
+    "    <h3>Current Session</h3>"
     "    <div class=stat><span class=stat-label>State</span><span id=st class='stat-value status-idle'>–</span></div>"
     "    <div class=stat><span class=stat-label>Context</span><span id=ctx class=stat-value>–</span></div>"
     "    <div class=gauge><div class='gauge-fill' id=ctx-bar style='width:0%'></div></div>"
@@ -317,6 +369,14 @@ void httpDashboard() {
     "      <div class=gauge><div class='gauge-fill' id=wk-bar style='width:0%'></div></div>"
     "      <div style='font-size:11px; color:#999; margin-top:4px;'>Resets: <span id=wkr>–</span></div>"
     "    </div>"
+    "  </div>"
+    "  <div class=panel>"
+    "    <h3>Weekly Burn</h3>"
+    "    <div class=stat><span id=pace style='font-size:28px; font-weight:bold;'>–</span>"
+    "      <span id=pacew style='font-size:13px; font-weight:bold;'></span></div>"
+    "    <div style='font-size:12px; color:#999; margin-top:4px;'><span id=burnused>–</span> used &middot; <span id=burnleft>–</span> left</div>"
+    "    <svg id=spark viewBox='0 0 300 80' preserveAspectRatio=none style='width:100%; height:80px; margin-top:10px;'></svg>"
+    "    <div id=sparknote style='font-size:11px; color:#666; margin-top:4px;'></div>"
     "  </div>"
     "  <div class=panel>"
     "    <h3>API Health</h3>"
@@ -338,21 +398,58 @@ void httpDashboard() {
     "  </div>"
     "</div>"
     "<div class=panel style='margin-bottom:20px;'>"
-    "  <h3>Active Sessions</h3>"
+    "  <h3>Active Sessions <span id=nsess style='color:#999; font-weight:normal;'></span></h3>"
     "  <div id=sessions></div>"
     "</div>"
     "<div class=timestamp>Last update: <span id=age>–</span> &middot; FW <span id=fw>–</span></div>"
     "<script>"
     "const API_PATH='/api/status';"
     "let lastUpdate=0;"
+    // The same words the board's own band shows, so the page and the screen never disagree.
+    "const STATE={working:['BUSY','working'],done:['READY','done'],needs_input:['NEEDS YOU','needs'],"
+    "idle:['IDLE','idle'],over:['OVER','idle']};"
+    "const ROW={n:['NEEDS YOU','state-n'],d:['READY','state-d'],w:['BUSY','state-w'],"
+    "o:['OVER','state-o'],i:['IDLE','state-o']};"
+    "function wait(s){if(s<60)return s+'s';if(s<3600)return Math.floor(s/60)+'m';"
+    "if(s<86400)return Math.floor(s/3600)+'h';return Math.floor(s/86400)+'d';}"
+    "function esc(s){return String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}"
+    "function left(m){if(m<0)return '–';if(m<60)return m+'m';"
+    "if(m<2880)return Math.floor(m/60)+'h'+String(m%60).padStart(2,'0')+'m';"
+    "return Math.floor(m/1440)+'d '+Math.floor((m%1440)/60)+'h';}"
+    // The board's own percentage ramp: green below 40, through yellow and orange to red.
+    "function pct(p){if(p<0)return '#666';const mix=(a,b,t)=>a.map((v,i)=>Math.round(v+(b[i]-v)*t));"
+    "let c;if(p<40)c=[0,255,48];else if(p<70)c=mix([0,255,48],[255,230,0],(p-40)/30);"
+    "else if(p<90)c=mix([255,230,0],[255,120,0],(p-70)/20);else c=mix([255,120,0],[255,0,0],Math.min(1,(p-90)/10));"
+    "return 'rgb('+c.join(',')+')';}"
+    "function drawSpark(h,anch,hpts){"
+    "  const el=document.getElementById('spark'),W=300,H=80;"
+    "  if(!h||h.length<2){el.innerHTML='<text x=6 y=44 fill=#444 font-size=12>collecting…</text>';return;}"
+    "  const span=Math.max(1,(anch?hpts:h.length)-1);"
+    "  const pts=h.map((v,i)=>[Math.min(W,i*W/span),H-v*H/100]);"
+    "  const d=pts.map((p,i)=>(i?'L':'M')+p[0].toFixed(1)+' '+p[1].toFixed(1)).join(' ');"
+    "  const last=pts[pts.length-1],col=pct(h[h.length-1]);"
+    // Early in the week the line sits on the baseline and reads as nothing. Filling under it
+    // gives the spend a shape to see against the even-burn diagonal.
+    "  const area=d+' L'+last[0].toFixed(1)+' '+H+' L0 '+H+' Z';"
+    // Every value quoted: an unquoted one swallows the closing slash, and the elements after
+    // it end up nested inside the tag instead of drawn beside it.
+    "  el.innerHTML=(anch?'<line x1=\"0\" y1=\"'+H+'\" x2=\"'+W+'\" y2=\"0\" stroke=\"#555\" stroke-width=\"1\" stroke-dasharray=\"3 5\"/>':'')"
+    "    +'<line x1=\"0\" y1=\"'+H+'\" x2=\"'+W+'\" y2=\"'+H+'\" stroke=\"#333\"/>'"
+    "    +'<path d=\"'+area+'\" fill=\"'+col+'\" fill-opacity=\"0.22\" stroke=\"none\"/>'"
+    "    +'<path d=\"'+d+'\" fill=\"none\" stroke=\"'+col+'\" stroke-width=\"2\" vector-effect=\"non-scaling-stroke\"/>'"
+    "    +'<circle cx=\"'+last[0].toFixed(1)+'\" cy=\"'+last[1].toFixed(1)+'\" r=\"3\" fill=\"'+col+'\"/>';}"
     "async function updateDashboard(){try{"
     "  const r=await fetch(API_PATH);if(!r.ok)return;"
     "  const d=await r.json();"
     "  lastUpdate=Date.now();"
-    "  document.getElementById('st').textContent=d.st||'–';document.getElementById('st').className='stat-value status-'+d.st;"
+    "  const s=STATE[d.st]||[(d.st||'–').toUpperCase(),'idle'];"
+    "  document.getElementById('st').textContent=s[0];"
+    "  document.getElementById('st').className='stat-value status-'+s[1];"
     "  document.getElementById('ctx').textContent=d.ctx>=0?d.ctx+'%':'–';"
     "  document.getElementById('ctx-bar').style.width=(d.ctx>=0?d.ctx:0)+'%';"
-    "  document.getElementById('model').textContent=d.model||'–';"
+    // Effort rides with the model: on its own row it reads like a separate setting, and it
+    // is not one - it qualifies which model you are talking to.
+    "  document.getElementById('model').textContent=(d.model||'–')+(d.eff?' '+d.eff:'');"
     "  document.getElementById('dir').textContent=d.dir||'–';"
     "  document.getElementById('h5').textContent=d.h5>=0?d.h5+'%':'–';document.getElementById('h5-bar').style.width=(d.h5>=0?d.h5:0)+'%';"
     "  document.getElementById('h5r').textContent=d.h5r||'–';"
@@ -370,6 +467,30 @@ void httpDashboard() {
     "  document.getElementById('clock').textContent=d.hm||'';"
     "  document.getElementById('fw').textContent=d.fw||'–';"
     "  const age=d.age>=0?d.age+'s':'–';document.getElementById('age').textContent=age;"
+    // Weekly burn: the pace number is the whole point, the curve is how it got there.
+    "  const pc=d.pace,known=pc!==undefined&&pc!==999;"
+    "  const pcol=!known?'#666':pc>20?'#ff3333':pc>8?'#ff9500':'#2ecc71';"
+    "  document.getElementById('pace').textContent=known?(pc>0?'+':'')+pc+'%':'–';"
+    "  document.getElementById('pace').style.color=pcol;"
+    "  document.getElementById('pacew').textContent=known?(pc>8?'AHEAD OF PACE':pc<-8?'UNDER PACE':'ON PACE'):'no data yet';"
+    "  document.getElementById('pacew').style.color=pcol;"
+    "  document.getElementById('burnused').textContent=(d.wk>=0?d.wk:0)+'%';"
+    "  document.getElementById('burnleft').textContent=left(d.wkm>=0?d.wkm:-1);"
+    "  drawSpark(d.hist,d.anch,d.hpts||32);"
+    "  document.getElementById('sparknote').textContent=(!d.hist||d.hist.length<2)?'sampling every 5 min'"
+    "    :d.anch?'dotted = even spend':'recent trend, no week anchor';"
+    // The board ranks these rows by who is blocked and for how long, so render them in the
+    // order they arrive: the top one is the thing to do next.
+    "  const rows=d.sess||[];"
+    "  document.getElementById('nsess').textContent=d.nsess?'('+d.nsess+(rows.length<d.nsess?', '+rows.length+' shown':'')+')':'';"
+    "  document.getElementById('sessions').innerHTML=rows.length?rows.map(e=>{"
+    "    const r=ROW[e.st]||ROW.i;"
+    "    const host=(d.hosts>1&&e.h)?esc(e.h)+':':'';"
+    "    const ctx=e.ctx>=0?' &middot; ctx '+e.ctx+'%':'';"
+    "    return '<div class=session-row><div><div class=session-name>'+host+esc(e.name)+'</div>'"
+    "      +'<div class=session-time>'+wait(e.wait||0)+ctx+' &middot; $'+(e.cost||0).toFixed(2)+'</div></div>'"
+    "      +'<span class=\"session-state '+r[1]+'\">'+r[0]+'</span></div>';"
+    "  }).join(''):'<div style=\"color:#666; font-size:13px;\">none active</div>';"
     "}catch(e){console.error('Update failed:',e);}}"
     "updateDashboard();setInterval(updateDashboard,2000);"
     "</script>";
