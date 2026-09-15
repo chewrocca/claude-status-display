@@ -270,21 +270,30 @@ else on the Mac needs to change.
 
 ### A second machine
 
-Once the board is on Wi-Fi it does not care which Mac is talking to it, and a second one
-needs no cable and no flashing:
+Once the board is on Wi-Fi it does not care which Mac is talking to it, and a second one needs
+no cable and no flashing. Power-cycle the board and press BOOT round to the About page: for ten
+minutes it shows the command that enrols a Mac, which is one line to run there.
 
 ```sh
-git clone https://github.com/chewrocca/claude-status-display.git
-cd claude-status-display
-./host/install.sh
-scp OTHER-MAC:~/.claude/esp32-status/token ~/.claude/esp32-status/token
-chmod 600 ~/.claude/esp32-status/token
+curl 192.168.10.178/e/363381 | sh
 ```
 
-Then restart Claude Code so the hooks load. The daemon finds no serial port and posts to
-`claude-status.local` instead; set `CLAUDE_STATUS_HOST` to the board's numeric IP if mDNS is
-slow on your network. The token is the only gate: without it the board answers 401 and ignores
-the machine entirely. `install.sh` prints these steps itself when it finds no token.
+The address and the six digits are the ones on the screen. That clones the repo to
+`~/.claude-status-display`, runs `install.sh`, and writes the shared token. Restart Claude Code
+afterwards so the hooks load.
+
+**Why a code.** The token is the only thing stopping anyone on your network writing to the
+display, so an endpoint that handed it to whoever asked would be worse than the inconvenience
+it saves. The board picks six digits at power-up and prints them as part of the URL on its own
+screen, so the only way to know the address that returns the token is to be standing in front
+of it. Ten minutes after power-up it stops answering at all. A wrong code gets a 403.
+
+The manual route still works if you would rather: clone the repo, run `./host/install.sh`, and
+copy `~/.claude/esp32-status/token` across yourself. `install.sh` prints those steps when it
+finds no token.
+
+The daemon finds no serial port on that machine and posts to `claude-status.local` instead; set
+`CLAUDE_STATUS_HOST` to the board's numeric IP if mDNS is slow on your network.
 
 **One machine at a time, though.** Every payload replaces the board's state and carries no
 machine identity, so two daemons pushing at once will fight and the display will flip between

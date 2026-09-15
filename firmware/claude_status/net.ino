@@ -27,6 +27,9 @@ WebServer http(80);
 volatile bool dumpInFlight = false;   // suppress other tasks logging into a binary dump
 String netSsid, netPass, netToken;
 bool wifiUp = false, mdnsUp = false, ntpSet = false, bleUp = false;
+#define ENROL_WINDOW_MS (10UL * 60UL * 1000UL)
+uint32_t enrolCode = 0;                               // see httpEnrol, below
+bool enrolOpen() { return millis() < ENROL_WINDOW_MS; }
 unsigned long lastWifiTry = 0;
 char netOut[12] = "unknown";       // worst level among watched components, fetched by the board
 char netComp[8] = "";              // which watched component (API / CODE)
@@ -40,6 +43,7 @@ void netLoadCreds() {
   netSsid = prefs.getString("ssid", "");
   netPass = prefs.getString("pass", "");
   netToken = prefs.getString("token", "");
+  enrolCode = 100000 + (esp_random() % 900000);       // six digits, new on every power-up
 }
 void netSaveCreds(const char *ssid, const char *pass, const char *token) {
   prefs.putString("ssid", ssid ? ssid : "");
@@ -111,6 +115,52 @@ void httpCmd() {
   handleCommand(c.c_str());
   http.send(200, "application/json", "{\"ok\":true}");
 }
+// --- enrolling another Mac ------------------------------------------------------------
+// Adding a second machine meant cloning the repo, running the installer, and copying the
+// shared token by hand off whichever Mac provisioned the board. The board is on the network
+// and already serves HTTP, so it can hand over the one command that does all of it.
+//
+// The token is what makes that worth doing and also what makes it dangerous: it is the only
+// thing stopping anyone on the network writing to this display, so an endpoint that gives it
+// to whoever asks would be worse than the inconvenience it removes. This is a pairing flow
+// instead. The board picks a code at power-up and prints it as part of a URL on its own
+// screen; that URL is the only one that returns the token, and the only way to know it is to
+// be standing in front of the device. The window closes ten minutes after power-up, so an
+// unattended board on a shared network is not handing anything to anyone.
+void httpEnrol() {
+  String sh =
+    "#!/bin/sh\n"
+    "set -e\n"
+    "S=\"$HOME/.claude/esp32-status\"; mkdir -p \"$S\"\n"
+    "printf '%s' '" + netToken + "' > \"$S/token\"; chmod 600 \"$S/token\"\n"
+    "D=\"${CLAUDE_STATUS_DIR:-$HOME/.claude-status-display}\"\n"
+    "if [ -d \"$D/.git\" ]; then git -C \"$D\" pull --ff-only\n"
+    "else git clone https://github.com/chewrocca/claude-status-display.git \"$D\"\n"
+    "fi\n"
+    "\"$D/host/install.sh\"\n"
+    "echo; echo 'Enrolled. Restart Claude Code so the hooks load.'\n";
+  http.send(200, "text/plain", sh);
+}
+
+// The code lives in the path rather than a query string, so the command a person types has no
+// characters the shell would try to glob.
+void httpNotFound() {
+  String u = http.uri();
+  if (u.startsWith("/e/")) {
+    if (!enrolOpen()) {
+      http.send(403, "text/plain", "enrolment closed: power-cycle the board and look at its screen\n");
+      return;
+    }
+    if (u.substring(3).toInt() == (long)enrolCode && enrolCode) {
+      httpEnrol();
+      return;
+    }
+    http.send(403, "text/plain", "wrong code: it is on the board's About page\n");
+    return;
+  }
+  http.send(404, "text/plain", "not found\n");
+}
+
 void httpRoot() {
   char page[900];
   snprintf(page, sizeof page,
@@ -252,6 +302,7 @@ void netBegin() {
   http.on("/shot", HTTP_GET, httpShot);
   http.on("/cmd", HTTP_GET, httpCmd);
   http.on("/info", HTTP_GET, httpInfo);
+  http.onNotFound(httpNotFound);                      // /e/<code> enrols a Mac, see above
   const char *hdrs[] = {"X-Token"}; http.collectHeaders(hdrs, 1);
   bleBegin();
   xTaskCreate(pollStatusTask, "poll", 16384, nullptr, 1, &pollTask);   // mbedTLS handshake is stack-hungry

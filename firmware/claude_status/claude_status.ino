@@ -103,6 +103,8 @@ struct Status {
 
 const char *clockStr();
 const char *netIp();
+extern uint32_t enrolCode;
+bool enrolOpen();
 void fmtK(int k, char *b, size_t n);
 void sdBegin(); void sdLoop(); int sdLoadHistory(uint8_t *out, int maxPoints);
 extern bool sdUp; extern uint32_t sdSizeMB;
@@ -746,6 +748,17 @@ void pageAbout() {
   // Clock and uptime share a row so the address below can have one to itself.
   snprintf(b, sizeof b, "%s up %lum", clockStr(), millis() / 60000UL);
   textAt(lx, ly + 20, b, 2, C_DIM);
+  // For ten minutes after power-up the board will enrol another Mac, and the command that
+  // does it is the useful thing to be showing. It is too wide for this panel on one line, so
+  // it wraps; it is one command. The code in it is the whole security story: the only way to
+  // know this URL is to be standing here looking at it.
+  if (wifiUp && enrolOpen()) {
+    textAt(lx, ly + 40, "ENROL A MAC", 2, C_AMBER);
+    snprintf(b, sizeof b, "curl %s", netIp());                textAt(lx, ly + 60, b, 2, C_TXT);
+    snprintf(b, sizeof b, "/e/%lu | sh", (unsigned long)enrolCode);
+    textAt(lx, ly + 80, b, 2, C_TXT);
+    return;                                  // the rest keeps for the other 23h50m
+  }
   textAt(lx, ly + 40, nightMode() ? "night mode" : "day mode", 2, C_DIM);
   snprintf(b, sizeof b, "sessions %d", S.n);                  textAt(lx, ly + 60, b, 2, C_DIM);
   // Last row on purpose: an address is the widest thing on this page, and the button column
