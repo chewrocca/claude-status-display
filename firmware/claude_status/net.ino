@@ -145,18 +145,35 @@ void httpEnroll() {
     "set -e\n"
     "S=\"$HOME/.claude/esp32-status\"; mkdir -p \"$S\"\n"
     "B=\"http://" + WiFi.localIP().toString() + "\"\n"
-    "if [ -r /dev/tty ]; then\n"
-    "  printf 'Code on the board: ' > /dev/tty\n"
-    "  read C < /dev/tty\n"
-    "  if T=$(curl -fsSL \"$B/t/$C\"); then\n"
-    "    printf '%s' \"$T\" > \"$S/token\"; chmod 600 \"$S/token\"\n"
+    // The code can come from the environment, for anywhere there is no one to ask: another
+    // script, a provisioning run, or a shell that is not attached to a terminal.
+    "C=\"${CLAUDE_STATUS_CODE:-}\"\n"
+    // Testing /dev/tty with -r is not enough. The device node exists whether or not this
+    // process has a controlling terminal, so the test passes and the open then fails with
+    // "Device not configured", which under set -e kills the install before it starts. Open
+    // it and see.
+    "if [ -z \"$C\" ] && { exec 3<>/dev/tty; } 2>/dev/null; then\n"
+    "  printf 'Code on the board: ' >&3\n"
+    "  read C <&3 || C=\"\"\n"
+    "  exec 3>&-\n"
+    "fi\n"
+    "GOT=\"\"\n"
+    "if [ -n \"$C\" ]; then\n"
+    // -S here would print curl's own "error: 403" a line before the explanation below, which
+    // says the same thing better. Keep -f so it still fails; drop -S so it fails quietly.
+    "  if T=$(curl -fs \"$B/t/$C\"); then\n"
+    "    printf '%s' \"$T\" > \"$S/token\"; chmod 600 \"$S/token\"; GOT=1\n"
     "  else\n"
     // -f hides the body, and the body is the only thing that says which of the two
     // refusals this was. Ask again without it purely to report the reason.
     "    echo \"No token written: $(curl -sS \"$B/t/$C\")\" >&2\n"
     "  fi\n"
     "else\n"
-    "  echo 'Not a terminal, so no token was written.' >&2\n"
+    // Deliberately no nested quoting here: telling someone to type sh -c "$(curl ...)" means
+    // escaping quotes inside quotes inside a C string, and the last version printed a literal
+    // $B for exactly that reason. Exporting the variable needs none of it.
+    "  echo 'No code, and no terminal to ask on. Export the code and re-run:' >&2\n"
+    "  echo '  export CLAUDE_STATUS_CODE=<the six digits on the board>' >&2\n"
     "fi\n"
     // Re-run where a checkout already exists and it should use that, not leave a second copy
     // behind and quietly repoint the agent at it.
@@ -177,7 +194,9 @@ void httpEnroll() {
     "  chmod 755 \"$D/host/install.sh\" \"$D/host/esp32-status-hook.sh\"\n"
     "  echo \"Installed from the board into $D\"\n"
     "fi\n"
-    "CLAUDE_STATUS_ENROLLED=1 \"$D/host/install.sh\"\n";
+    // Only claim to have enrolled the machine if it actually got a token. Without one the
+    // installer should say what is still missing, not congratulate anybody.
+    "CLAUDE_STATUS_ENROLLED=\"$GOT\" \"$D/host/install.sh\"\n";
   http.send(200, "text/plain", sh);
 }
 

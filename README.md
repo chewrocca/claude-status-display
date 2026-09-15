@@ -284,6 +284,17 @@ The screen has to break that across two lines, so it ends the first one with a b
 is the shell's own line continuation, not decoration: type or paste the two lines exactly as
 shown and you get this single command.
 
+It asks for the code on the terminal, which works inside the pipeline because it reads from
+`/dev/tty` rather than stdin. Somewhere with no terminal at all, pass the code in instead:
+
+```sh
+export CLAUDE_STATUS_CODE=144053
+curl -fsS 192.168.10.178/install.sh | sh
+```
+
+Either way, a wrong or expired code stops the token being written and says so, and everything
+else still installs.
+
 The address is the one on the screen. The script asks for the six digits shown under it, trades
 them for the shared token, and then takes the three host files it needs from the board itself:
 `install.sh`, the hook, and the daemon. No git, no GitHub, no checkout. The board is carrying
