@@ -196,13 +196,20 @@ room anyway. Any tap or state change wakes it, and a tap buys another 10 minutes
 
 The band color and the LED color come from one function, `stateRGB()`, so they're the same
 color by construction rather than two lists someone has to keep in sync. Only the motion
-differs per state.
+differs per state. That was written as an intention and was true of exactly one state: BUSY
+derived its band from `stateRGB()` and every other state used a matching constant alongside
+it, which is the arrangement the sentence claims to have avoided. Every colored state derives
+from it now.
+
+Warm means the machine wants you, and the gap between the two warm states does the work the
+words do up close. They were previously 36 apart on a single channel, which is no difference
+at all across a room at the brightness those states run.
 
 | State | Color | LED motion |
 | --- | --- | --- |
 | BUSY | rainbow, one lap every 6 s (the band cycles with it) | steady at that hue |
-| READY | amber `(255,165,0)` | three quick pulses, steady glow, softer after 2 min |
-| NEEDS YOU | orange `(255,129,0)` | insistent breathe until acknowledged |
+| READY | yellow `(255,200,0)` | three quick pulses, steady glow, softer after 2 min |
+| NEEDS YOU | red-orange `(255,60,0)` | insistent breathe until acknowledged |
 | RATE LIMIT | magenta `(255,0,255)` | slow breathe |
 | OUTAGE | red `(255,0,0)` | breathe, or a red tick every 3 s over another state |
 | IDLE | gray `(32,32,32)` | dim pilot light; a slow aurora once the screensaver runs |

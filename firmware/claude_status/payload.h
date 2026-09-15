@@ -233,7 +233,7 @@ jq -n --arg state "$state" --arg event "$ev" --arg detail "${nt:-$tool}" --arg c
 exit 0
 )ESP32PAYLOAD";
 
-// host/claude_status_daemon.py, 34627 bytes
+// host/claude_status_daemon.py, 35990 bytes
 static const char PAYLOAD_DAEMON[] PROGMEM = R"ESP32PAYLOAD(#!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.11"
@@ -431,6 +431,33 @@ def forget_window(name):
         _windows_dirty = True
 
 
+def seed_window(model_id, display_name):
+    """A window size for a model the board has not been told about, or 0 for "no idea".
+
+    Learned values always win; this only fills gaps, so a fresh board is useful before it has
+    watched a status line for every model. It asserts only what has actually been observed:
+
+      - an id ending in `[1m]` is the 1M variant, whatever the base model. Claude Code offers
+        both, and the status line reports `claude-opus-5[1m]` with a 1000000 window.
+      - Fable runs at 1M with no marker at all, so absence of the marker says nothing. Claude
+        Code's own usage panel read 181.7k / 1M for `claude-fable-5-1`.
+      - Haiku 4.5 is the one current model that is not 1M.
+
+    Everything else stays unknown and shows a token count instead. Guessing 1M for a 200K
+    session understates it five times over, and understating is the wrong direction to be
+    wrong in for a gauge whose whole job is to warn you.
+    """
+    mid = (model_id or "").lower()
+    name = (display_name or "").lower()
+    if mid.endswith("[1m]") or "1m context" in name:
+        return 1000000
+    if mid.startswith("claude-haiku") or name.startswith("haiku"):
+        return 200000
+    if mid.startswith("claude-fable") or name.startswith("fable"):
+        return 1000000
+    return 0
+
+
 def learn_window(sl):
     """Remember the window size the status line reports for this model."""
     name = ((sl.get("model") or {}).get("display_name") or "").strip()
@@ -544,7 +571,7 @@ def transcript_tail(path, tail_bytes=65536):
         # The marketing name matches the status line's display_name exactly, which is what
         # lets the learned window map bridge the two sources.
         out["model"] = ident.get("marketingName") or out["model"]
-        size = windows_map().get(out["model"])
+        size = windows_map().get(out["model"]) or seed_window(ident.get("modelId"), out["model"])
         # A window smaller than the context already in it is not that session's window. The
         # app names models without the variant suffix the CLI uses ("Opus 5" against "Opus 5
         # (1M context)"), so a name can be matched to the wrong size. Tokens observed are the

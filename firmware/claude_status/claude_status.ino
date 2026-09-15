@@ -60,7 +60,8 @@
 #define C_TXT     0xFFFF
 #define C_DIM     0x8410
 #define C_GREEN   0x07E6
-#define C_AMBER   0xFD20
+#define C_AMBER   0xFE40   // your turn: 255,200,0, matching stateRGB's H_DONE
+#define C_NEEDS   0xF9E0   // blocked on you: 255,60,0, matching stateRGB's H_NEEDS
 #define C_RED     0xF800
 #define C_BLUE    0x3D7F
 #define C_MAGENTA 0xF81F
@@ -76,7 +77,12 @@ class SharedCanvas : public GFXcanvas16 {   // GFXcanvas16 only allocates or not
   ~SharedCanvas() { buffer = nullptr; }
 };
 SharedCanvas *cv = nullptr;
-Adafruit_NeoPixel led(1, PIN_RGB, NEO_GRB + NEO_KHZ800);
+// The panel and the LED both derive from stateRGB(), so they can only disagree if the wire
+// order is wrong. Declared GRB, every warm colour came out green: orange, amber and red all
+// land on the green channel. Grey hides it (equal channels) and so does the BUSY rainbow
+// (a rotated rainbow is still a rainbow), which is why it went unnoticed until someone
+// looked at NEEDS YOU. This board is RGB.
+Adafruit_NeoPixel led(1, PIN_RGB, NEO_RGB + NEO_KHZ800);
 Preferences prefs;
 
 // --- state from host -------------------------------------------------------------
@@ -305,8 +311,12 @@ void stateRGB(uint8_t &r, uint8_t &g, uint8_t &b) {
       uint32_t c = led.ColorHSV((uint16_t)((millis() % 6000UL) * 65535UL / 6000UL), 255, 255);
       r = c >> 16; g = c >> 8; b = c; return;
     }
-    case H_DONE:    r = 255; g = 165; b = 0;   return;  // amber
-    case H_NEEDS:   r = 255; g = 129; b = 0;   return;  // orange
+    // Your turn and blocked on you were 36 apart on one channel, which is no difference at
+    // all across a room, at the low brightness these states actually run, on the two states
+    // you see most and must respond to differently. Both stay warm, because warm means the
+    // machine wants you; the gap between them now does the work the words do up close.
+    case H_DONE:    r = 255; g = 200; b = 0;   return;  // yellow: your turn, at your leisure
+    case H_NEEDS:   r = 255; g = 60;  b = 0;   return;  // red-orange: blocked, cannot proceed
     case H_LIMITED: r = 255; g = 0;   b = 255; return;  // magenta
     case H_OUTAGE:  r = 255; g = 0;   b = 0;   return;  // red
     default:        r = 32;  g = 32;  b = 32;  return;  // idle / no link: neutral grey
@@ -323,12 +333,15 @@ BandStyle bandStyle() {
     case H_NOLINK:  b = {"NO",    "LINK",  C_PANEL,   C_DIM,  sprite_bot_nolink}; break;   // API row still works from the board's own poll
     case H_IDLE:    b = {"IDLE",  "",      C_PANEL,   C_DIM,  sprite_bot_idle}; break;
     case H_WORKING: b = {"BUSY",  "",      0,         0x0000, sprite_bot_working}; break;
-    case H_DONE:    b = {"READY", "",      C_AMBER,   0x0000, sprite_bot_done}; break;
-    case H_NEEDS:   b = {"NEEDS", "YOU",   C_ORANGE,  0x0000, sprite_bot_ask}; break;
-    case H_LIMITED: b = {"RATE",  "LIMIT", C_MAGENTA, 0x0000, sprite_bot_limited}; break;
-    default:        b = {"OUT",   "AGE",   C_RED,     C_TXT,  sprite_bot_outage}; break;
+    case H_DONE:    b = {"READY", "",      0,         0x0000, sprite_bot_done}; break;
+    case H_NEEDS:   b = {"NEEDS", "YOU",   0,         0x0000, sprite_bot_ask}; break;
+    case H_LIMITED: b = {"RATE",  "LIMIT", 0,         0x0000, sprite_bot_limited}; break;
+    default:        b = {"OUT",   "AGE",   0,         C_TXT,  sprite_bot_outage}; break;
   }
-  if (head == H_WORKING) b.bg = stateColor565();       // follows the LED hue exactly
+  // Every coloured state takes its background from stateRGB(), not from a constant that
+  // happens to agree with it. Only BUSY did this before, so the claim that the panel and the
+  // LED cannot drift apart was true of exactly one state out of six.
+  if (head != H_NOLINK && head != H_IDLE) b.bg = stateColor565();
   if (!haveLink && S.ts) {                             // last known state, not a live one
     uint8_t r, g, bl; stateRGB(r, g, bl);
     b.bg = rgb565(r / 3, g / 3, bl / 3);
@@ -611,7 +624,7 @@ void pageBurn() {
 
 uint16_t sessColor(char st) {
   switch (st) {
-    case 'n': return C_ORANGE;     // blocked on you
+    case 'n': return C_NEEDS;      // blocked on you
     case 'd': return C_AMBER;      // finished, your turn
     case 'w': return C_BLUE;       // running
     default:  return C_DIM;        // over, or idle
