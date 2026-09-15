@@ -221,14 +221,15 @@ void httpNotFound() {
 }
 
 void httpRoot() {
-  char page[900];
+  char page[1000];
   snprintf(page, sizeof page,
     "<!doctype html><meta name=viewport content='width=device-width'><title>Claude Status</title>"
     "<body style='font-family:system-ui;background:#111;color:#eee;padding:24px'>"
     "<h2>Claude Status</h2><p>state <b>%s</b> &middot; api <b>%s</b></p>"
     "<p>ctx %d%% &middot; 5h %d%% (%s) &middot; week %d%% (%s)</p>"
     "<p>model %s &middot; %s &middot; fw " FW_VERSION " &middot; via %s</p>"
-    "<p><a href='/cmd?c=tap'>tap</a> &middot; <a href='/cmd?c=rotate'>rotate</a> &middot; <a href='/cmd?c=hold'>night</a></p>",
+    "<p><a href='/dashboard' style='color:#ffa500; font-weight:bold; text-decoration:none;'>→ View Dashboard</a> &middot; "
+    "<a href='/cmd?c=tap'>tap</a> &middot; <a href='/cmd?c=rotate'>rotate</a> &middot; <a href='/cmd?c=hold'>night</a></p>",
     S.st, S.out, S.ctx, S.h5, S.h5r, S.wk, S.wkr, S.model, S.dir, transport);
   http.send(200, "text/html", page);
 }
@@ -239,6 +240,140 @@ void httpInfo() {
            WiFi.localIP().toString().c_str(), WiFi.RSSI(), ntpSet ? "true" : "false", bleUp ? "true" : "false",
            transport, netOut, (unsigned long)(sdUp ? sdSizeMB : 0), (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMinFreeHeap(), millis() / 1000UL);
   http.send(200, "application/json", b);
+}
+
+// --- live status API (JSON) ------------------------------------------------------------------
+void httpApiStatus() {
+  char b[1600];
+  snprintf(b, sizeof b,
+    "{\"ctx\":%d,\"h5\":%d,\"wk\":%d,\"h5m\":%d,\"wkm\":%d,\"n\":%d,\"age\":%d,"
+    "\"h5r\":\"%s\",\"wkr\":\"%s\",\"hm\":\"%s\",\"st\":\"%s\",\"out\":\"%s\","
+    "\"inc\":\"%s\",\"comp\":\"%s\",\"model\":\"%s\",\"dir\":\"%s\",\"eff\":\"%s\","
+    "\"cost\":%.2f,\"lim\":%s,\"night\":%s,\"cw\":%s,"
+    "\"dur\":%d,\"api\":%d,\"la\":%d,\"lr\":%d,\"tin\":%d,\"tout\":%d,\"ch\":%d,\"cxm\":%d,"
+    "\"fw\":\"" FW_VERSION "\",\"clock\":\"%s\"}",
+    S.ctx, S.h5, S.wk, S.h5m, S.wkm, S.n, S.age,
+    S.h5r, S.wkr, S.hm, S.st, S.out,
+    S.inc, S.comp, S.model, S.dir, S.eff,
+    S.cost, S.lim ? "true" : "false", S.night ? "true" : "false", S.cw ? "true" : "false",
+    S.dur, S.api, S.la, S.lr, S.tin, S.tout, S.ch, S.cxm,
+    clockStr());
+  http.send(200, "application/json", b);
+}
+
+// --- web dashboard -----------------------------------------------------------------------
+void httpDashboard() {
+  const char *page =
+    "<!DOCTYPE html><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
+    "<title>Claude Status Dashboard</title>"
+    "<style>"
+    "* { margin:0; padding:0; box-sizing:border-box; }"
+    "body { font-family:system-ui,-apple-system,sans-serif; background:#0a0a0a; color:#eee; padding:20px; }"
+    ".grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:20px; margin-bottom:20px; }"
+    ".panel { background:#1a1a1a; border:1px solid #333; border-radius:8px; padding:20px; }"
+    ".panel h3 { color:#ffc800; margin-bottom:12px; font-size:14px; text-transform:uppercase; }"
+    ".stat { display:flex; justify-content:space-between; align-items:center; margin:8px 0; }"
+    ".stat-label { color:#999; font-size:13px; }"
+    ".stat-value { font-weight:bold; color:#fff; font-size:16px; }"
+    ".gauge { width:100%; height:20px; background:#333; border-radius:4px; overflow:hidden; margin-top:4px; }"
+    ".gauge-fill { height:100%; background:linear-gradient(90deg,#2ecc71,#ffc800); transition:width 0.3s; }"
+    ".status-working { color:#1a9eff; font-weight:bold; }"
+    ".status-done { color:#ffc800; font-weight:bold; }"
+    ".status-needs { color:#ff6b6b; font-weight:bold; }"
+    ".status-idle { color:#666; font-weight:bold; }"
+    ".health-none { color:#2ecc71; }"
+    ".health-minor { color:#ffc800; }"
+    ".health-major { color:#ff9500; }"
+    ".health-critical { color:#ff3333; }"
+    ".session-row { background:#0a0a0a; border:1px solid #222; border-radius:4px; padding:12px; margin:8px 0; display:flex; justify-content:space-between; align-items:center; }"
+    ".session-name { font-weight:bold; color:#fff; }"
+    ".session-time { color:#999; font-size:12px; }"
+    ".session-state { padding:4px 8px; border-radius:3px; font-size:11px; font-weight:bold; }"
+    ".state-n { background:#ff6b6b; color:#fff; }"
+    ".state-d { background:#ffc800; color:#000; }"
+    ".state-w { background:#1a9eff; color:#fff; }"
+    ".state-o { background:#666; color:#fff; }"
+    ".timestamp { color:#666; font-size:12px; margin-top:20px; text-align:center; }"
+    "</style>"
+    "<h1 style='margin-bottom:30px; font-size:24px;'>Claude Status <span id=clock style='color:#999;'></span></h1>"
+    "<div class=grid>"
+    "  <div class=panel>"
+    "    <h3>Overview</h3>"
+    "    <div class=stat><span class=stat-label>State</span><span id=st class='stat-value status-idle'>–</span></div>"
+    "    <div class=stat><span class=stat-label>Context</span><span id=ctx class=stat-value>–</span></div>"
+    "    <div class=gauge><div class='gauge-fill' id=ctx-bar style='width:0%'></div></div>"
+    "    <div class=stat><span class=stat-label>Model</span><span id=model class=stat-value>–</span></div>"
+    "    <div class=stat><span class=stat-label>Directory</span><span id=dir style='font-size:12px; color:#999;'>–</span></div>"
+    "  </div>"
+    "  <div class=panel>"
+    "    <h3>Rate Limits</h3>"
+    "    <div style='margin-bottom:16px;'>"
+    "      <div class=stat><span class=stat-label>5-Hour</span><span id=h5 class=stat-value>–</span></div>"
+    "      <div class=gauge><div class='gauge-fill' id=h5-bar style='width:0%'></div></div>"
+    "      <div style='font-size:11px; color:#999; margin-top:4px;'>Resets: <span id=h5r>–</span></div>"
+    "    </div>"
+    "    <div>"
+    "      <div class=stat><span class=stat-label>7-Day</span><span id=wk class=stat-value>–</span></div>"
+    "      <div class=gauge><div class='gauge-fill' id=wk-bar style='width:0%'></div></div>"
+    "      <div style='font-size:11px; color:#999; margin-top:4px;'>Resets: <span id=wkr>–</span></div>"
+    "    </div>"
+    "  </div>"
+    "  <div class=panel>"
+    "    <h3>API Health</h3>"
+    "    <div class=stat><span class=stat-label>Status</span><span id=out class='stat-value health-none'>–</span></div>"
+    "    <div id=comp-row style='display:none;'>"
+    "      <div class=stat><span class=stat-label>Affected</span><span id=comp class=stat-value>–</span></div>"
+    "    </div>"
+    "    <div id=inc-row style='display:none;'>"
+    "      <div style='font-size:12px; color:#ffc800; margin-top:12px;'><strong>Incident:</strong> <span id=inc></span></div>"
+    "    </div>"
+    "  </div>"
+    "  <div class=panel>"
+    "    <h3>Session Stats</h3>"
+    "    <div class=stat><span class=stat-label>Cost</span><span id=cost class=stat-value>$–</span></div>"
+    "    <div class=stat><span class=stat-label>Duration</span><span id=dur class=stat-value>–</span></div>"
+    "    <div class=stat><span class=stat-label>API Time</span><span id=api class=stat-value>–</span></div>"
+    "    <div class=stat><span class=stat-label>Cache Hit</span><span id=ch class=stat-value>–</span></div>"
+    "    <div class=stat><span class=stat-label>Lines ±</span><span id=lines class=stat-value>–</span></div>"
+    "  </div>"
+    "</div>"
+    "<div class=panel style='margin-bottom:20px;'>"
+    "  <h3>Active Sessions</h3>"
+    "  <div id=sessions></div>"
+    "</div>"
+    "<div class=timestamp>Last update: <span id=age>–</span> &middot; FW <span id=fw>–</span></div>"
+    "<script>"
+    "const API_PATH='/api/status';"
+    "let lastUpdate=0;"
+    "async function updateDashboard(){try{"
+    "  const r=await fetch(API_PATH);if(!r.ok)return;"
+    "  const d=await r.json();"
+    "  lastUpdate=Date.now();"
+    "  document.getElementById('st').textContent=d.st||'–';document.getElementById('st').className='stat-value status-'+d.st;"
+    "  document.getElementById('ctx').textContent=d.ctx>=0?d.ctx+'%':'–';"
+    "  document.getElementById('ctx-bar').style.width=(d.ctx>=0?d.ctx:0)+'%';"
+    "  document.getElementById('model').textContent=d.model||'–';"
+    "  document.getElementById('dir').textContent=d.dir||'–';"
+    "  document.getElementById('h5').textContent=d.h5>=0?d.h5+'%':'–';document.getElementById('h5-bar').style.width=(d.h5>=0?d.h5:0)+'%';"
+    "  document.getElementById('h5r').textContent=d.h5r||'–';"
+    "  document.getElementById('wk').textContent=d.wk>=0?d.wk+'%':'–';document.getElementById('wk-bar').style.width=(d.wk>=0?d.wk:0)+'%';"
+    "  document.getElementById('wkr').textContent=d.wkr||'–';"
+    "  const outMap={none:'✓ All Good',minor:'⚠ Degraded',major:'⚠ Outage',critical:'✘ Critical',unknown:'?'};"
+    "  document.getElementById('out').textContent=outMap[d.out]||'–';document.getElementById('out').className='stat-value health-'+d.out;"
+    "  if(d.comp){document.getElementById('comp-row').style.display='block';document.getElementById('comp').textContent=d.comp;}else{document.getElementById('comp-row').style.display='none';}"
+    "  if(d.inc){document.getElementById('inc-row').style.display='block';document.getElementById('inc').textContent=d.inc;}else{document.getElementById('inc-row').style.display='none';}"
+    "  document.getElementById('cost').textContent='$'+(d.cost||0).toFixed(2);"
+    "  document.getElementById('dur').textContent=(d.dur||0)+'m';"
+    "  document.getElementById('api').textContent=(d.api||0)+'m';"
+    "  document.getElementById('ch').textContent=d.ch>=0?d.ch+'%':'–';"
+    "  document.getElementById('lines').textContent=(d.la||0)+'/'+(d.lr||0);"
+    "  document.getElementById('clock').textContent=d.hm||'';"
+    "  document.getElementById('fw').textContent=d.fw||'–';"
+    "  const age=d.age>=0?d.age+'s':'–';document.getElementById('age').textContent=age;"
+    "}catch(e){console.error('Update failed:',e);}}"
+    "updateDashboard();setInterval(updateDashboard,2000);"
+    "</script>";
+  http.send(200, "text/html", page);
 }
 
 // --- own status polling (FreeRTOS task so TLS never stalls the LED/animation) ------------------
@@ -361,6 +496,8 @@ void netBegin() {
   http.on("/shot", HTTP_GET, httpShot);
   http.on("/cmd", HTTP_GET, httpCmd);
   http.on("/info", HTTP_GET, httpInfo);
+  http.on("/api/status", HTTP_GET, httpApiStatus);
+  http.on("/dashboard", HTTP_GET, httpDashboard);
   http.on("/install.sh", HTTP_GET, httpEnroll);       // carries no secret, so needs no gate
   // The host files themselves, so enrolling needs neither git nor GitHub.
   http.on("/setup.sh",  HTTP_GET, [] { http.send_P(200, "text/plain", PAYLOAD_INSTALL); });
