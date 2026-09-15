@@ -301,6 +301,12 @@ and the code is six digits the board picks at power-up and shows only on its own
 getting one means having stood in front of the device. Ten minutes after power-up that route
 stops answering at all, and a wrong code gets a 403.
 
+The code is kept in the board's flash rather than minted at boot. Opening the serial port
+resets this board, so a fresh code on every boot changed under you every time the daemon
+reconnected: you would read six digits off the screen and they were stale by the time you
+typed them. The window still starts at power-up, which is what keeps it to someone standing
+there.
+
 The prompt works inside a pipeline because the script reads from `/dev/tty`, which `| sh` leaves
 free. Run it somewhere without a terminal and it says so, installs everything else, and leaves
 the token to you.

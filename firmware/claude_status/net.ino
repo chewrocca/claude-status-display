@@ -43,7 +43,15 @@ void netLoadCreds() {
   netSsid = prefs.getString("ssid", "");
   netPass = prefs.getString("pass", "");
   netToken = prefs.getString("token", "");
-  enrollCode = 100000 + (esp_random() % 900000);       // six digits, new on every power-up
+  // Kept, not regenerated. Opening the serial port resets this board, so a code minted at
+  // boot changed every time the daemon reconnected: you would read six digits off the screen
+  // and they were already stale by the time you typed them. The window still starts at
+  // power-up, so this is only usable while someone is standing here, which was the point.
+  enrollCode = prefs.getUInt("enroll", 0);
+  if (enrollCode < 100000 || enrollCode > 999999) {
+    enrollCode = 100000 + (esp_random() % 900000);
+    prefs.putUInt("enroll", enrollCode);
+  }
 }
 void netSaveCreds(const char *ssid, const char *pass, const char *token) {
   prefs.putString("ssid", ssid ? ssid : "");
@@ -143,7 +151,9 @@ void httpEnroll() {
     "  if T=$(curl -fsSL \"$B/t/$C\"); then\n"
     "    printf '%s' \"$T\" > \"$S/token\"; chmod 600 \"$S/token\"\n"
     "  else\n"
-    "    echo 'Wrong or expired code, so no token was written.' >&2\n"
+    // -f hides the body, and the body is the only thing that says which of the two
+    // refusals this was. Ask again without it purely to report the reason.
+    "    echo \"No token written: $(curl -sS \"$B/t/$C\")\" >&2\n"
     "  fi\n"
     "else\n"
     "  echo 'Not a terminal, so no token was written.' >&2\n"

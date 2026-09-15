@@ -102,9 +102,21 @@ cat > "$PLIST" <<EOF
 </dict>
 </plist>
 EOF
+# bootout returns before launchd has finished tearing the job down, and bootstrapping into
+# that gap fails with EIO ("Bootstrap failed: 5: Input/output error"), which is what a re-run
+# on a machine that already had the agent loaded would hit. Wait for it to actually go.
 launchctl bootout "gui/$(id -u)/$AGENT" 2>/dev/null || true
-launchctl bootstrap "gui/$(id -u)" "$PLIST"
-say "daemon agent loaded"
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  launchctl print "gui/$(id -u)/$AGENT" >/dev/null 2>&1 || break
+  sleep 0.5
+done
+for attempt in 1 2 3; do
+  if launchctl bootstrap "gui/$(id -u)" "$PLIST" 2>/dev/null; then
+    say "daemon agent loaded"; break
+  fi
+  [ "$attempt" = 3 ] && say "NOTE: could not load the agent; run: launchctl bootstrap gui/\$(id -u) $PLIST"
+  sleep 1
+done
 
 # A second machine needs none of the flashing: the board is already built and on the network.
 # What it does need is the shared token, which only ever lives on the Mac that provisioned it.
