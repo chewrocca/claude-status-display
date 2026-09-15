@@ -258,11 +258,11 @@ static void jsonStr(char *out, size_t n, const char *in) {
 void httpApiStatus() {
   // The same rows the board's SESSIONS page draws, so the dashboard's list is not a second
   // answer to the question of what is running.
-  char sess[420]; size_t so = 0;
+  char sess[600]; size_t so = 0;
   sess[so++] = '[';
   for (int i = 0; i < S.nrows && i < (int)(sizeof S.sess / sizeof S.sess[0]); i++) {
     Status::Sess &e = S.sess[i];
-    char name[28]; jsonStr(name, sizeof name, e.name);
+    char name[sizeof e.name]; jsonStr(name, sizeof name, e.name);
     char host[2] = {e.h ? e.h : ' ', 0};
     int w = snprintf(sess + so, sizeof sess - so,
                      "%s{\"name\":\"%s\",\"st\":\"%c\",\"wait\":%d,\"cost\":%.2f,\"ctx\":%d,\"h\":\"%s\"}",
@@ -283,7 +283,7 @@ void httpApiStatus() {
   }
   hist[ho++] = ']'; hist[ho] = 0;
 
-  char b[2600];
+  char b[2800];
   snprintf(b, sizeof b,
     "{\"ctx\":%d,\"h5\":%d,\"wk\":%d,\"h5m\":%d,\"wkm\":%d,\"n\":%d,\"age\":%d,"
     "\"h5r\":\"%s\",\"wkr\":\"%s\",\"hm\":\"%s\",\"st\":\"%s\",\"out\":\"%s\","
@@ -375,6 +375,8 @@ void httpDashboard() {
     "    <div class=stat><span id=pace style='font-size:28px; font-weight:bold;'>–</span>"
     "      <span id=pacew style='font-size:13px; font-weight:bold;'></span></div>"
     "    <div style='font-size:12px; color:#999; margin-top:4px;'><span id=burnused>–</span> used &middot; <span id=burnleft>–</span> left</div>"
+    "    <div id=proj style='font-size:13px; font-weight:bold; margin-top:8px;'>–</div>"
+    "    <div style='font-size:11px; color:#666;'>aim to finish the week near 100%</div>"
     "    <svg id=spark viewBox='0 0 300 80' preserveAspectRatio=none style='width:100%; height:80px; margin-top:10px;'></svg>"
     "    <div id=sparknote style='font-size:11px; color:#666; margin-top:4px;'></div>"
     "  </div>"
@@ -407,9 +409,9 @@ void httpDashboard() {
     "let lastUpdate=0;"
     // The same words the board's own band shows, so the page and the screen never disagree.
     "const STATE={working:['BUSY','working'],done:['READY','done'],needs_input:['NEEDS YOU','needs'],"
-    "idle:['IDLE','idle'],over:['OVER','idle']};"
+    "idle:['IDLE','idle'],over:['CLOSED','idle']};"
     "const ROW={n:['NEEDS YOU','state-n'],d:['READY','state-d'],w:['BUSY','state-w'],"
-    "o:['OVER','state-o'],i:['IDLE','state-o']};"
+    "o:['CLOSED','state-o'],i:['IDLE','state-o']};"
     "function wait(s){if(s<60)return s+'s';if(s<3600)return Math.floor(s/60)+'m';"
     "if(s<86400)return Math.floor(s/3600)+'h';return Math.floor(s/86400)+'d';}"
     "function esc(s){return String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}"
@@ -478,7 +480,15 @@ void httpDashboard() {
     "  document.getElementById('burnleft').textContent=left(d.wkm>=0?d.wkm:-1);"
     "  drawSpark(d.hist,d.anch,d.hpts||32);"
     "  document.getElementById('sparknote').textContent=(!d.hist||d.hist.length<2)?'sampling every 5 min'"
-    "    :d.anch?'dotted = even spend':'recent trend, no week anchor';"
+    "    :d.anch?'dotted = on track to finish at 100%':'recent trend, no week anchor';"
+    // Pace says how this week compares to spending evenly; it does not say where the week
+    // lands. Allowance left unspent at the reset is gone, so the number worth watching is
+    // the one the current rate projects onto, and 100% is the target it should approach.
+    "  const gone=10080-(d.wkm>=0?d.wkm:10080),el=document.getElementById('proj');"
+    "  if(d.wk<0||gone<360){el.textContent='projecting…';el.style.color='#666';}"
+    "  else{const end=Math.round(d.wk*10080/gone);"
+    "    el.textContent='on track for '+end+'% by '+(d.wkr||'reset');"
+    "    el.style.color=end>105?'#ff9500':end>=85?'#2ecc71':end>=60?'#ffc800':'#888';}"
     // The board ranks these rows by who is blocked and for how long, so render them in the
     // order they arrive: the top one is the thing to do next.
     "  const rows=d.sess||[];"

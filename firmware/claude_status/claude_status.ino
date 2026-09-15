@@ -98,7 +98,11 @@ struct Status {
   int pace = 999, quiet = 70, nhist = 0;
   bool histAnchored = false;       // true: hist[] is the daemon's week buckets, so the diagonal means something
   uint8_t hist[40];
-  struct Sess { char name[14]; char st; int wait; float cost; int ctx; char h; } sess[4];
+  // The name is held whole, not at the width of the screen it used to be drawn on: the 13
+  // characters that fit a 172 px row turned "esp32_project" into "esp32_projec" everywhere,
+  // including on the dashboard, which has room for all of it. The pages that cannot fit it
+  // clip at the point of drawing instead.
+  struct Sess { char name[30]; char st; int wait; float cost; int ctx; char h; } sess[4];
   int nsess = 0, nrows = 0, nblk = 0, blkw = 0, nwork = 0, nrdy = 0;
   int cxm = -1;                    // minutes until the prompt cache expires, -1 unknown
   int ctxt = 0;                    // context tokens (thousands) when there is no percentage
@@ -136,7 +140,7 @@ struct BandStyle { const char *l1, *l2; uint16_t bg, fg; const uint16_t *spr; };
 enum Headline { H_NOLINK, H_IDLE, H_WORKING, H_DONE, H_NEEDS, H_LIMITED, H_OUTAGE };
 enum Page { PG_OVERVIEW, PG_SESSIONS, PG_BURN, PG_LIMITS, PG_STATS, PG_API, PG_ENROLL, PG_ABOUT, PG_COUNT };
 
-char rx[1024]; uint16_t rxLen = 0; bool rxSkip = false;
+char rx[1280]; uint16_t rxLen = 0; bool rxSkip = false;   // headroom: full session names cost ~64 bytes a payload
 unsigned long lastRx = 0, rxAt = 0, stateChangedAt = 0;
 // "act as though we have been resting long enough", for the sleep and cycle commands. It
 // cannot be expressed by winding stateChangedAt back: millis() is under five minutes for
@@ -636,7 +640,7 @@ const char *sessWord(char st) {
     case 'n': return "YOU";
     case 'd': return "ready";
     case 'w': return "run";
-    case 'o': return "over";
+    case 'o': return "closed";   // finished long enough ago that it is not waiting on you
     default:  return "idle";
   }
 }
@@ -671,7 +675,8 @@ void pageSessions() {
       textAt(176, y + 2, sessWord(e.st), 2, c);         // colour carries the state; this disambiguates
       textRight(y + 2, w, 2, C_DIM);                    // how long it has been like that
     } else {
-      textAt(18, y + 2, e.name, 2, e.st == 'o' || e.st == 'i' ? C_DIM : C_TXT);
+      snprintf(b, sizeof b, "%.12s", e.name);           // 12 is what a 172 px row holds at size 2
+      textAt(18, y + 2, b, 2, e.st == 'o' || e.st == 'i' ? C_DIM : C_TXT);
       snprintf(b, sizeof b, "%s %s", sessWord(e.st), w);
       textAt(18, y + 18, b, 2, c);
     }

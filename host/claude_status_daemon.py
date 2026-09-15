@@ -564,7 +564,10 @@ def session_rows():
                 or os.path.basename(hook_cwd)          # hook-only session: name it from cwd
                 or sid[:8])
         rows.append({
-            "n": name[:12],
+            # The board holds 29 characters and clips to its own rows when it draws them;
+            # cutting to the width of a 172 px panel here truncated the name for every
+            # surface, the dashboard included.
+            "n": name[:28],
             "s": {"needs_input": "n", "done": "d", "working": "w", "over": "o", "idle": "i"}.get(state, "i"),
             "w": wait,
             "c": round(float((sl.get("cost") or {}).get("total_cost_usd") or 0), 2),
