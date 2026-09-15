@@ -142,16 +142,21 @@ void httpEnroll() {
   http.send(200, "text/plain", sh);
 }
 
-// The code lives in the path rather than a query string, so the command a person types has no
-// characters the shell would try to glob.
+// /<code>/install.sh. The code goes in the path rather than a query string so the command has
+// no character the shell would try to glob, and install.sh stays on the end because that is
+// the shape everyone already recognises. Anything that is not a match is an HTTP error, which
+// matters more than it looks: the command ends in `| sh`, so a refusal that came back as a
+// 200 with an explanation in the body would be piped straight into a shell. Curl's -f turns
+// these into a non-zero exit and prints nothing.
 void httpNotFound() {
   String u = http.uri();
-  if (u.startsWith("/enroll/")) {
+  if (u.endsWith("/install.sh") && u.indexOf('/', 1) > 1) {
+    long given = u.substring(1, u.indexOf('/', 1)).toInt();
     if (!enrollOpen()) {
-      http.send(403, "text/plain", "enrollment closed: power-cycle the board and look at its screen\n");
+      http.send(403, "text/plain", "enrollment closed: power-cycle the board and read its screen\n");
       return;
     }
-    if (u.substring(8).toInt() == (long)enrollCode && enrollCode) {
+    if (given && given == (long)enrollCode) {
       httpEnroll();
       return;
     }
@@ -302,7 +307,7 @@ void netBegin() {
   http.on("/shot", HTTP_GET, httpShot);
   http.on("/cmd", HTTP_GET, httpCmd);
   http.on("/info", HTTP_GET, httpInfo);
-  http.onNotFound(httpNotFound);                      // /enroll/<code> enrolls a Mac, see above
+  http.onNotFound(httpNotFound);                      // /<code>/install.sh enrolls a Mac
   const char *hdrs[] = {"X-Token"}; http.collectHeaders(hdrs, 1);
   bleBegin();
   xTaskCreate(pollStatusTask, "poll", 16384, nullptr, 1, &pollTask);   // mbedTLS handshake is stack-hungry

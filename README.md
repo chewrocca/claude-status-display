@@ -275,10 +275,20 @@ no cable and no flashing. Power-cycle the board and press BOOT round to the Abou
 minutes it shows the command that enrolls a Mac, which is one line to run there.
 
 ```sh
-curl 192.168.10.178/enroll/363381 | sh
+curl -fsSL 192.168.10.178/985023/install.sh | sh
 ```
 
-The address and the six digits are the ones on the screen. That clones the repo to
+The address and the six digits are the ones on the screen. `-f` is not decoration: the command
+ends in `| sh`, so a refusal returned as a 200 with an explanation in the body would be piped
+into a shell. Every refusal here is an HTTP error and `-f` turns those into a non-zero exit
+with no output at all.
+
+It is `http://`, and cannot reasonably be `https://`. The board talks TLS as a *client* to
+reach the Claude status page, and that handshake alone wants a 16 KB stack. Serving TLS needs a
+certificate in flash, and no authority issues one for a private address, so the only options
+are a self-signed certificate that `curl` rejects without `-k`, which gives up exactly the
+protection the scheme was for. On a LAN, against a device you can see, the code in the path is
+the honest protection. That clones the repo to
 `~/.claude-status-display`, runs `install.sh`, and writes the shared token. Restart Claude Code
 afterwards so the hooks load.
 

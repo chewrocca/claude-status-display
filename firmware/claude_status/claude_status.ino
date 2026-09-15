@@ -754,8 +754,8 @@ void pageAbout() {
   // know this URL is to be standing here looking at it.
   if (wifiUp && enrollOpen()) {
     textAt(lx, ly + 40, "ENROLL", 2, C_AMBER);
-    snprintf(b, sizeof b, "curl %s", netIp());                textAt(lx, ly + 60, b, 2, C_TXT);
-    snprintf(b, sizeof b, "/enroll/%lu | sh", (unsigned long)enrollCode);
+    snprintf(b, sizeof b, "curl -fsSL %s", netIp());          textAt(lx, ly + 60, b, 2, C_TXT);
+    snprintf(b, sizeof b, "/%lu/install.sh | sh", (unsigned long)enrollCode);
     textAt(lx, ly + 80, b, 2, C_TXT);
     return;                                  // the rest keeps for the other 23h50m
   }
