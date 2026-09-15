@@ -244,7 +244,6 @@ void httpInfo() {
 
 // --- live status API (JSON) ------------------------------------------------------------------
 void httpApiStatus() {
-  if (!tokenOk(http.header("X-Token"))) { http.send(401, "application/json", "{\"err\":\"token\"}"); return; }
   char b[1600];
   snprintf(b, sizeof b,
     "{\"ctx\":%d,\"h5\":%d,\"wk\":%d,\"h5m\":%d,\"wkm\":%d,\"n\":%d,\"age\":%d,"
