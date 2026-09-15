@@ -106,6 +106,25 @@ launchctl bootout "gui/$(id -u)/$AGENT" 2>/dev/null || true
 launchctl bootstrap "gui/$(id -u)" "$PLIST"
 say "daemon agent loaded"
 
+# A second machine needs none of the flashing: the board is already built and on the network.
+# What it does need is the shared token, which only ever lives on the Mac that provisioned it.
+if [[ ! -s "$STATE/token" ]]; then
+  cat <<EOF
+
+Done. This machine has no board token yet, so it cannot talk to a board over Wi-Fi.
+
+If a board is already set up on another Mac, copy the token across and restart Claude Code:
+    scp OTHER-MAC:~/.claude/esp32-status/token "$STATE/token"
+    chmod 600 "$STATE/token"
+That is all. The daemon finds no serial port here, so it will post to claude-status.local
+by itself. Set CLAUDE_STATUS_HOST to the board's IP if mDNS is slow on your network.
+
+If this is the first machine and you still have to build the board, see the README for the
+flash and provisioning steps.
+EOF
+  exit 0
+fi
+
 cat <<EOF
 
 Done. Remaining steps:

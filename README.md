@@ -268,6 +268,29 @@ board's own flash, and the password comes from 1Password at provisioning time).
 If the board itself is replaced, flash the firmware and re-run `provision.py`. Nothing
 else on the Mac needs to change.
 
+### A second machine
+
+Once the board is on Wi-Fi it does not care which Mac is talking to it, and a second one
+needs no cable and no flashing:
+
+```sh
+git clone https://github.com/chewrocca/claude-status-display.git
+cd claude-status-display
+./host/install.sh
+scp OTHER-MAC:~/.claude/esp32-status/token ~/.claude/esp32-status/token
+chmod 600 ~/.claude/esp32-status/token
+```
+
+Then restart Claude Code so the hooks load. The daemon finds no serial port and posts to
+`claude-status.local` instead; set `CLAUDE_STATUS_HOST` to the board's numeric IP if mDNS is
+slow on your network. The token is the only gate: without it the board answers 401 and ignores
+the machine entirely. `install.sh` prints these steps itself when it finds no token.
+
+**One machine at a time, though.** Every payload replaces the board's state and carries no
+machine identity, so two daemons pushing at once will fight and the display will flip between
+them every few seconds. The gauges would agree, since rate limits are account wide, but the
+state, the session list and the context reading would not.
+
 ## Build and flash
 
 ```sh
