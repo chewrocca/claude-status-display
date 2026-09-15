@@ -129,6 +129,13 @@ With several sessions open, the rule that works:
   `curl`: no git, no clone, no reaching the internet at all. It costs about 44 KB of flash.
   Regenerate the header whenever any of those three change, or the board will happily install
   a stale copy of them.
+- **Say which machine a payload came from.** A payload replaces the board's whole state, so
+  without a `host` field two daemons overwrite each other several times a second and the
+  display is unusable. Keep a slot per machine, expire one that goes quiet, and render the
+  merge: headline to the most urgent machine on the usual `needs_input > working > done`
+  order, per-session numbers from that same machine, counts and session rows summed across
+  all of them. Rate limits are the account's rather than the machine's, so any live reading
+  serves and the freshest wins.
 - **What the display learns belongs on the display.** Window sizes and the weekly curve are
   kept in the board's own flash, not in a file on whichever laptop happened to see them first.
   The board is the only always-on participant and the only one every machine talks to, so this

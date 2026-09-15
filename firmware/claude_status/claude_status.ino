@@ -92,14 +92,28 @@ struct Status {
   int pace = 999, quiet = 70, nhist = 0;
   bool histAnchored = false;       // true: hist[] is the daemon's week buckets, so the diagonal means something
   uint8_t hist[40];
-  struct Sess { char name[14]; char st; int wait; float cost; int ctx; } sess[4];
+  struct Sess { char name[14]; char st; int wait; float cost; int ctx; char h; } sess[4];
   int nsess = 0, nrows = 0, nblk = 0, blkw = 0, nwork = 0, nrdy = 0;
   int cxm = -1;                    // minutes until the prompt cache expires, -1 unknown
   int ctxt = 0;                    // context tokens (thousands) when there is no percentage
   int rlage = -1;                  // seconds since anyone asked for the limits, -1 = ours
   char ver[10] = "", cwin[8] = "";
+  char host[14] = "";              // which machine sent this
   long ts = 0;
 } S;
+
+// --- more than one machine --------------------------------------------------------------
+// Every payload replaces this whole struct, and until now none of them said where it came
+// from, so two daemons pushing at once simply overwrote each other a few times a second.
+// Each machine gets a slot, and what is drawn is a merge of the live ones: the headline goes
+// to whichever is most urgent, the numbers beside it belong to that same machine, and the
+// counts and the session list are the sum of all of them. A slot nobody has written to for
+// two minutes is a laptop that has gone to sleep, and drops out.
+#define HOST_SLOTS 3
+#define HOST_TTL_MS (2UL * 60UL * 1000UL)
+struct HostSlot { Status s; unsigned long seen = 0; bool used = false; };
+HostSlot hostSlots[HOST_SLOTS];
+int liveHosts = 0;
 
 const char *clockStr();
 const char *netIp();
@@ -636,7 +650,10 @@ void pageSessions() {
     cv->fillRect(6, y + 2, 6, rowH - 8, c);                 // state as a colour bar
     char w[10]; fmtWait(e.wait, w, sizeof w);
     if (land) {
-      snprintf(b, sizeof b, "%.12s", e.name);
+      // With one machine the name is the whole story. With two, which machine it is on is
+      // the first thing you want, so the row leads with its initial.
+      if (liveHosts > 1 && e.h) snprintf(b, sizeof b, "%c:%.10s", e.h, e.name);
+      else                      snprintf(b, sizeof b, "%.12s", e.name);
       textAt(18, y + 2, b, 2, e.st == 'o' || e.st == 'i' ? C_DIM : C_TXT);
       textAt(176, y + 2, sessWord(e.st), 2, c);         // colour carries the state; this disambiguates
       textRight(y + 2, w, 2, C_DIM);                    // how long it has been like that
@@ -1122,6 +1139,93 @@ void handleCommand(const char *cmd) {
   dirty = true;
 }
 
+// needs_input beats working beats done, the same order one machine uses across its own
+// windows. A machine that merely finished does not outrank one that is busy.
+static int statePri(const char *st) {
+  if (!strcmp(st, "needs_input")) return 0;
+  if (!strcmp(st, "working"))     return 1;
+  if (!strcmp(st, "done"))        return 2;
+  return 3;
+}
+
+static void saveHostSlot() {
+  int idx = -1, oldest = 0;
+  for (int i = 0; i < HOST_SLOTS; i++) {
+    if (hostSlots[i].used && !strcmp(hostSlots[i].s.host, S.host)) { idx = i; break; }
+    if (!hostSlots[i].used && idx < 0) idx = i;
+    if (hostSlots[i].seen < hostSlots[oldest].seen) oldest = i;
+  }
+  if (idx < 0) idx = oldest;                       // all taken: evict the stalest
+  hostSlots[idx].s = S;
+  hostSlots[idx].seen = millis();
+  hostSlots[idx].used = true;
+}
+
+static void mergeHosts() {
+  unsigned long now = millis();
+  int live = 0, head = -1;
+  for (int i = 0; i < HOST_SLOTS; i++) {
+    if (hostSlots[i].used && now - hostSlots[i].seen > HOST_TTL_MS) hostSlots[i].used = false;
+    if (!hostSlots[i].used) continue;
+    live++;
+    if (head < 0) { head = i; continue; }
+    int a = statePri(hostSlots[i].s.st), b = statePri(hostSlots[head].s.st);
+    if (a < b || (a == b && hostSlots[i].seen > hostSlots[head].seen)) head = i;
+  }
+  liveHosts = live;
+  if (head < 0) return;
+  S = hostSlots[head].s;              // the numbers belong to the machine that owns the state
+  if (live < 2) return;
+
+  // Rate limits are the account's, not the machine's, so any live reading will do and the
+  // freshest is the best. The headline machine may have none of its own.
+  if (S.wk < 0 || S.h5 < 0) {
+    int best = -1;
+    for (int i = 0; i < HOST_SLOTS; i++)
+      if (hostSlots[i].used && hostSlots[i].s.wk >= 0 &&
+          (best < 0 || hostSlots[i].seen > hostSlots[best].seen)) best = i;
+    if (best >= 0) {
+      S.h5 = hostSlots[best].s.h5; S.wk = hostSlots[best].s.wk;
+      S.h5m = hostSlots[best].s.h5m; S.wkm = hostSlots[best].s.wkm;
+      strlcpy(S.h5r, hostSlots[best].s.h5r, sizeof S.h5r);
+      strlcpy(S.wkr, hostSlots[best].s.wkr, sizeof S.wkr);
+      S.lim = hostSlots[best].s.lim;
+    }
+  }
+
+  // Counts and the session list are the sum of every machine: the whole point is that the
+  // desk speaks for all of them at once.
+  Status::Sess all[HOST_SLOTS * 4];
+  int nAll = 0;
+  S.n = S.nsess = S.nblk = S.nrdy = S.nwork = 0; S.blkw = 0;
+  for (int i = 0; i < HOST_SLOTS; i++) {
+    if (!hostSlots[i].used) continue;
+    const Status &h = hostSlots[i].s;
+    S.n += h.n; S.nsess += h.nsess; S.nblk += h.nblk; S.nrdy += h.nrdy; S.nwork += h.nwork;
+    if (h.blkw > S.blkw) S.blkw = h.blkw;
+    for (int r = 0; r < h.nrows && nAll < (int)(sizeof all / sizeof all[0]); r++) {
+      all[nAll] = h.sess[r];
+      all[nAll].h = h.host[0];                     // one letter is enough to tell them apart
+      nAll++;
+    }
+  }
+  // Same ranking one machine uses: blocked first, then finished, then working, longest wait
+  // first inside each band.
+  const char *order = "ndwoi";
+  for (int i = 1; i < nAll; i++) {
+    Status::Sess key = all[i];
+    int ki = (int)(strchr(order, key.st) ? strchr(order, key.st) - order : 9), j = i - 1;
+    while (j >= 0) {
+      int ji = (int)(strchr(order, all[j].st) ? strchr(order, all[j].st) - order : 9);
+      if (ji > ki || (ji == ki && all[j].wait < key.wait)) { all[j + 1] = all[j]; j--; }
+      else break;
+    }
+    all[j + 1] = key;
+  }
+  S.nrows = nAll < 4 ? nAll : 4;
+  for (int i = 0; i < S.nrows; i++) S.sess[i] = all[i];
+}
+
 void handleLine(const char *line) {
   JsonDocument doc;
   if (deserializeJson(doc, line)) { Serial.println("{\"err\":\"json\"}"); return; }
@@ -1190,6 +1294,7 @@ void handleLine(const char *line) {
   if (hostNight != hostNightLast) { hostNightLast = hostNight; nightOverride = false; }   // window boundary clears manual override
   S.night = hostNight;
   S.ts = ts;
+  copyStr(S.host, sizeof S.host, doc["host"], "");
   copyStr(S.h5r, sizeof S.h5r, doc["h5r"], "");
   copyStr(S.wkr, sizeof S.wkr, doc["wkr"], "");
   copyStr(S.hm, sizeof S.hm, doc["hm"], "");
@@ -1210,6 +1315,9 @@ void handleLine(const char *line) {
   }
   lastRx = rxAt = millis();
   haveLink = true;
+  // Keep this machine's payload, then redraw from every machine at once.
+  saveHostSlot();
+  mergeHosts();
   dirty = true;
   bleNotifyState();
   Serial.printf("{\"ok\":%ld,\"st\":\"%s\"}\n", S.ts, S.st);

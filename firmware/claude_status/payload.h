@@ -233,7 +233,7 @@ jq -n --arg state "$state" --arg event "$ev" --arg detail "${nt:-$tool}" --arg c
 exit 0
 )ESP32PAYLOAD";
 
-// host/claude_status_daemon.py, 34315 bytes
+// host/claude_status_daemon.py, 34627 bytes
 static const char PAYLOAD_DAEMON[] PROGMEM = R"ESP32PAYLOAD(#!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.11"
@@ -256,7 +256,8 @@ Payload (one JSON line, on change or every HEARTBEAT_S):
   ts             epoch of newest data (device uses it for staleness)
   age model dir cost
 """
-import glob, json, os, sys, threading, time, urllib.request
+import glob
+import socket, json, os, sys, threading, time, urllib.request
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -269,6 +270,7 @@ STATUS_HOSTS = ["https://status.claude.com", "https://status.anthropic.com"]
 # Set CLAUDE_STATUS_PORT_GLOB to a path that matches nothing to force the Wi-Fi path.
 PORT_GLOB = os.environ.get("CLAUDE_STATUS_PORT_GLOB", "/dev/cu.usbmodem*")
 BOARD_HOST = os.environ.get("CLAUDE_STATUS_HOST", "claude-status.local")   # Wi-Fi fallback when USB is absent
+HOST = (os.environ.get("CLAUDE_STATUS_NAME") or socket.gethostname().split(".")[0])[:13]
 TOKEN_FILE = os.path.join(STATE, "token")
 HTTP_RETRY_S = 10
 HTTP_TIMEOUT_S = 8        # mDNS resolution alone can take 5 s on a cold cache
@@ -811,6 +813,9 @@ def build_payload(poller):
         "out": poller.indicator, "inc": poller.incident, "comp": poller.comp, "other": poller.other, "n": n,
         "night": local.hour >= NIGHT_START or local.hour < NIGHT_END,
         "hm": fmt_reset(now),
+        # Which machine this is. Every payload replaces the board's whole state, so without
+        # this two daemons pushing at once simply overwrite each other several times a second.
+        "host": HOST,
     }
     ts = max(mtime, att_ts) if mine else att_ts
     if sl:

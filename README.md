@@ -347,10 +347,19 @@ finds no token.
 The daemon finds no serial port on that machine and posts to `claude-status.local` instead; set
 `CLAUDE_STATUS_HOST` to the board's numeric IP if mDNS is slow on your network.
 
-**One machine at a time, though.** Every payload replaces the board's state and carries no
-machine identity, so two daemons pushing at once will fight and the display will flip between
-them every few seconds. The gauges would agree, since rate limits are account wide, but the
-state, the session list and the context reading would not.
+**Several machines at once is fine.** Every payload says which machine sent it, and the board
+keeps a slot per machine rather than letting the newest one overwrite everything. What you see
+is the merge: the headline goes to whichever machine is most urgent, on the same order one
+machine uses across its own windows, and the numbers beside it belong to that same machine. The
+session count and the session list are the sum of all of them, and each row leads with its
+machine's initial once more than one is live. A machine that has not been heard from for two
+minutes has gone to sleep and drops out.
+
+Rate limits are the exception and are shared, because they belong to the account rather than
+any machine. If the machine holding the headline has none of its own, the freshest reading from
+any of the others is used.
+
+Set `CLAUDE_STATUS_NAME` if you want a machine to report as something other than its hostname.
 
 ## Build and flash
 
