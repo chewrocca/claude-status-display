@@ -111,25 +111,29 @@ With several sessions open, the rule that works:
 - **A session with no status line is not a session with no numbers.** The hook carries
   `transcript_path`, and every assistant record in a transcript carries a `usage` block, so
   context tokens, model, version and the real project directory are all one tail read away,
-  and they match the status line exactly. The window size takes one more step: assistant
-  records carry a model id with the `[1m]` marker stripped, so the percentage is unknowable
-  from them alone. The identity record written at session start keeps the full id. It sits
-  near the top of a file that runs to megabytes, so scan forward for it once and cache it,
-  re-scanning only when the assistant records report a different model. Read only the tail
-  for everything else; this runs on every tick. What is genuinely absent is the rate limits:
-  they appear nowhere in the hook payload or the transcript, only in the status line.
+  and they match the status line exactly. The identity record written at session start gives
+  the model's display name; it sits near the top of a file that runs to megabytes, so scan
+  forward for it once and cache it, re-scanning only when the assistant records report a
+  different model. Read only the tail for everything else; this runs on every tick.
+- **Never infer a context window size from a model id.** `claude-opus-5[1m]` carries a marker
+  because Opus also runs at 200K. `claude-fable-5-1` carries none and is 1M anyway. No
+  transcript states the size. Learn it from status line payloads, keyed on display name, and
+  show a token count for a model you have not seen one for.
+- **Rate limits are the one thing with no local source but the status line.** They are in no
+  hook field and nowhere in a transcript. Borrow them from whichever window last asked, since
+  every window spends the same account allowance, and carry the age so an old reading can be
+  drawn as old rather than as current.
 - **Numbers belong to the session that owns the headline, not to the most recent writer.**
   Context and cost are per session. Not every window mirrors a status line: one running in
   the desktop app fires hooks but never writes one, because that surface draws its own usage
   panel instead of running a status line command. Borrowing the newest other window's
   context and cost and captioning them with this window's name reports one session's work as
   another's. Show the headline session's own numbers, or show none and still name the window.
-- **Do not borrow rate limits either.** They are account wide, so a reading from another
-  window is not wrong in kind, only as of whenever that window last asked. That distinction
-  does not survive being drawn as a live gauge beside a context bar reading "--": the row
-  looks current and is not. A headline session with no payload shows nothing at all. The one
-  exception is an idle desk, where no session is running and there is nothing for the last
-  known numbers to be confused with.
+- **Borrow rate limits, but say how old they are.** They are account wide, so a reading from
+  any window is true for every window, as of whenever that window last asked. Refusing to
+  show them made sense only while the context gauge beside them read "--", because the row
+  then looked like one session's numbers and half of it was not. With context real for every
+  session the row is coherent, so carry the reading's age and draw an old one dim.
 - **Rate limits are account-wide.** They do not vary by session.
 - **Prune stale files.** A session killed without `SessionEnd` leaves a `working` or `done`
   file behind. Ignore anything older than ~30 minutes or a dead session pins your display.

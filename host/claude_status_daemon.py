@@ -128,6 +128,44 @@ def attention():
 _transcript_cache = {}
 _identity_cache = {}
 
+# Display name -> context window size, learned from status line payloads and kept on disk.
+# A transcript names its model but never says how big that model's window is, and the size
+# cannot be read off the id: "claude-opus-5[1m]" carries a marker because Opus also runs at
+# 200K, while "claude-fable-5-1" carries none and is 1M all the same. So never infer it.
+# Watch what a status line reports for each model and remember that instead.
+WINDOWS_FILE = os.path.join(STATE, "model-windows.json")
+_windows = None
+
+
+def windows_map():
+    global _windows
+    if _windows is None:
+        m = read_json(WINDOWS_FILE)
+        _windows = m if isinstance(m, dict) else {}
+    return _windows
+
+
+def learn_window(sl):
+    """Remember the window size the status line reports for this model."""
+    name = ((sl.get("model") or {}).get("display_name") or "").strip()
+    try:
+        size = int((sl.get("context_window") or {}).get("context_window_size") or 0)
+    except (TypeError, ValueError):
+        return
+    if not name or size <= 0:
+        return
+    m = windows_map()
+    if m.get(name) == size:
+        return
+    m[name] = size
+    try:
+        tmp = WINDOWS_FILE + ".tmp"
+        with open(tmp, "w") as fh:
+            json.dump(m, fh, indent=1)
+        os.replace(tmp, WINDOWS_FILE)
+    except OSError:
+        pass
+
 
 def transcript_identity(path, base_model):
     """The identity record for a transcript: the full model id, with its `[1m]` marker.
@@ -169,9 +207,11 @@ def transcript_tail(path, tail_bytes=65536):
     identity block with the *full* model id, including the `[1m]` marker that the assistant
     records drop, plus the same marketing name the status line would have given.
 
-    That marker is what makes a percentage possible: with it the window is 1M, without it the
-    model's ordinary 200K. Verified against a status line on the same session, 495196 tokens
-    of 1M read back as the 50% Claude Code itself reported.
+    The size of that window is never stated anywhere in a transcript, and it cannot be read
+    off the id: "claude-opus-5[1m]" carries a marker because Opus also runs at 200K, while
+    "claude-fable-5-1" carries none and is 1M regardless. So the size is learned from status
+    line payloads instead, matched on the display name, and a session whose model has not
+    been seen in a terminal yet reports its token count rather than a guessed percentage.
 
     Only the tail is read, and results are cached per path against size and mtime, because
     this runs on every daemon tick.
@@ -221,12 +261,13 @@ def transcript_tail(path, tail_bytes=65536):
             break
     ident = transcript_identity(path, out.get("model", "")) if out else {}
     if out and ident:
+        # The marketing name matches the status line's display_name exactly, which is what
+        # lets the learned window map bridge the two sources.
         out["model"] = ident.get("marketingName") or out["model"]
-        # The only thing that distinguishes a 1M session from an ordinary one. Absent means
-        # the model's standard window; there is no third size to confuse it with.
-        out["window"] = 1000000 if str(ident.get("modelId", "")).endswith("[1m]") else 200000
-        if out["window"]:
-            out["ctx_pct"] = round(out["ctx_tokens"] / out["window"] * 100)
+        size = windows_map().get(out["model"])
+        if size:
+            out["window"] = size
+            out["ctx_pct"] = round(out["ctx_tokens"] / size * 100)
     _transcript_cache[path] = (key, out)
     return out
 
@@ -429,6 +470,8 @@ def session_rows():
     for sid in sorted(sess.keys() | att.keys()):
         f, m = sess.get(sid, (None, 0.0))
         sl = (read_json(f) or {}) if f else {}
+        if sl:
+            learn_window(sl)                        # every payload teaches one model's size
         state, ts, hook_cwd = att.get(sid, ("idle", m, ""))
         wait = int(now - ts)
         # No hook has fired and nothing has been written for hours: that window is closed,
@@ -516,14 +559,17 @@ def build_payload(poller):
     # work as another's, which is worse than reporting nothing.
     sl, mtime = session_for(owner.get("sid"))
     mine = sl is not None
-    if not mine and not owner:
-        # Nothing is running at all. There is no other session for these to be confused
-        # with, and the last known weekly burn is worth seeing on an idle desk.
+    rl_age = -1
+    if not mine:
+        # The limits are account wide: every window spends the same allowance, so a payload
+        # from any of them is true for this one, as of whenever that window last asked. That
+        # was worth refusing while the context gauge beside it read "--", because the row
+        # then looked like one session's numbers and half of it was not. Context is real for
+        # these sessions now, so the row is coherent again and the limits come back, with
+        # their age travelling alongside so the device can show them for what they are.
         sl, mtime = latest_session()
-    # A headline session that never writes a payload gets nothing, not even the limits.
-    # They are account wide and so not wrong in kind, only as of whenever some other window
-    # last asked. That distinction does not survive being drawn as a live gauge beside a
-    # context bar reading "--", so the whole row goes quiet instead.
+        if sl:
+            rl_age = int(now - mtime)
     local = datetime.now(TZ)
     p = {
         "out": poller.indicator, "inc": poller.incident, "comp": poller.comp, "other": poller.other, "n": n,
@@ -540,6 +586,8 @@ def build_payload(poller):
             "wk": wk, "wkr": wkr, "wkm": wkm,
             "lim": h5 >= 100 or wk >= 100,
         })
+        if rl_age >= 0:
+            p["rlage"] = rl_age                     # borrowed: how long since anyone asked
         if mine:                                    # per session: only from the session itself
             p.update({
                 "ctx": pct((sl.get("context_window") or {}).get("used_percentage")),

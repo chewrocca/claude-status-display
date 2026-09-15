@@ -49,6 +49,7 @@
 #define SCREEN_OFF_MS     (10UL * 60UL * 1000UL)  // after 10 min at rest the panel goes dark
 #define NOLINK_DIM_MS     (2UL * 60UL * 1000UL)
 #define CACHE_WARN_MIN    10       // prompt cache this close to expiry is worth saying out loud
+#define RL_STALE_S        600      // borrowed limits older than this are drawn as old news
 #define HISTORY_POINTS    32       // must match HISTORY_POINTS in claude_status_daemon.py
 #define BTN_LONG_MS       800UL
 #define BTN_ROTATE_MS     3000UL
@@ -95,6 +96,7 @@ struct Status {
   int nsess = 0, nrows = 0, nblk = 0, blkw = 0, nwork = 0, nrdy = 0;
   int cxm = -1;                    // minutes until the prompt cache expires, -1 unknown
   int ctxt = 0;                    // context tokens (thousands) when there is no percentage
+  int rlage = -1;                  // seconds since anyone asked for the limits, -1 = ours
   char ver[10] = "", cwin[8] = "";
   long ts = 0;
 } S;
@@ -392,8 +394,14 @@ void bandLandscape() {                     // 112 x 172 down the left side
 }
 
 // --- gauges ----------------------------------------------------------------------------
+// The limits are account wide and may come from whichever window last asked. That is still
+// this account's allowance, but it is not necessarily this minute's, so an old reading is
+// drawn dim: visible, and visibly not fresh.
+bool limitsOld(const char *label) {
+  return S.rlage > RL_STALE_S && (!strcmp(label, "5HR") || !strcmp(label, "WEEK"));
+}
 void gaugePortrait(int y, const char *label, int pct, const char *inside) {   // 58 px tall
-  uint16_t col = dimIf(pctColor(pct));
+  uint16_t col = limitsOld(label) ? C_DIM : dimIf(pctColor(pct));
   char num[8];
   textAt(6, y + 12, label, 2, C_DIM);
   if (!strcmp(label, "CTX") && S.cwin[0])
@@ -406,7 +414,7 @@ void gaugePortrait(int y, const char *label, int pct, const char *inside) {   //
 }
 void gaugeLandscape(int y, const char *label, int pct, const char *inside) {  // 46 px tall, right column
   int x = LB_W + 8, w = W() - x - 6;
-  uint16_t col = dimIf(pctColor(pct));
+  uint16_t col = limitsOld(label) ? C_DIM : dimIf(pctColor(pct));
   char num[8];
   textAt(x, y + 4, label, 2, C_DIM);
   // A context percentage means nothing without the size of the window it is a percentage of.
@@ -1044,6 +1052,7 @@ void handleLine(const char *line) {
   S.nrdy  = doc["nrdy"]  | 0;
   S.cxm   = doc["cxm"]   | -1;
   S.ctxt  = doc["ctxt"]  | 0;
+  S.rlage = doc["rlage"] | -1;
   S.blkw  = doc["blkw"]  | 0;
   S.nrows = 0;
   for (JsonObjectConst r : doc["sess"].as<JsonArrayConst>()) {

@@ -77,12 +77,18 @@ No polling, no API key, no scraping. Two documented interfaces already publish e
   payload ever appears for it. The hook passes on `transcript_path`, and every assistant
   record in that file carries a `usage` block, so the context tokens, model and version can
   be read from its tail. Rate limits are not in there and are not available any other way, so
-  those gauges stay empty for such a session. Everything else reads exactly as it would for a
-  terminal session, the context gauge included. Assistant records drop the `[1m]` marker from
-  the model id, but the identity record written at the start of the transcript keeps it, and
-  that is what says whether the window is 1M or the model's ordinary 200K. Checked against a
-  status line on the same session: 510710 tokens of 1M came back as the 51% Claude Code
-  itself reported.
+  they are borrowed from whichever window last asked, which is legitimate because every
+  window spends the same account allowance. A borrowed reading older than ten minutes is
+  drawn dim: visible, and visibly not this minute's.
+
+  The context gauge reads exactly as it would for a terminal session. Token counts come from
+  the transcript and match the status line to the token. The window size does not: nothing in
+  a transcript states it, and it cannot be read off the model id, since `claude-opus-5[1m]`
+  carries a marker only because Opus also runs at 200K while `claude-fable-5-1` carries none
+  and is 1M regardless. So sizes are learned from status line payloads, matched on the model's
+  display name, and kept in `~/.claude/esp32-status/model-windows.json`. A model never seen in
+  a terminal shows its token count instead of a guessed percentage. The file is plain JSON if
+  you would rather fill one in.
 
 A daemon merges the two and pushes one JSON line to whatever you want to drive. Swap out
 the last step and the rest carries over unchanged.
