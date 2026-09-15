@@ -127,12 +127,27 @@ void httpCmd() {
 // screen; that URL is the only one that returns the token, and the only way to know it is to
 // be standing in front of the device. The window closes ten minutes after power-up, so an
 // unattended board on a shared network is not handing anything to anyone.
+// The script itself carries no secret, so this URL needs nothing in it and can be the plain
+// /install.sh everyone expects. The code moves into the conversation instead: the script asks
+// for it over /dev/tty, which a pipeline leaves free, and trades it for the token. So the
+// address is public and the secret is still gated on having read six digits off the screen.
 void httpEnroll() {
   String sh =
     "#!/bin/sh\n"
     "set -e\n"
     "S=\"$HOME/.claude/esp32-status\"; mkdir -p \"$S\"\n"
-    "printf '%s' '" + netToken + "' > \"$S/token\"; chmod 600 \"$S/token\"\n"
+    "B=\"http://" + WiFi.localIP().toString() + "\"\n"
+    "if [ -r /dev/tty ]; then\n"
+    "  printf 'Code on the board: ' > /dev/tty\n"
+    "  read C < /dev/tty\n"
+    "  if T=$(curl -fsSL \"$B/t/$C\"); then\n"
+    "    printf '%s' \"$T\" > \"$S/token\"; chmod 600 \"$S/token\"\n"
+    "  else\n"
+    "    echo 'Wrong or expired code, so no token was written.' >&2\n"
+    "  fi\n"
+    "else\n"
+    "  echo 'Not a terminal, so no token was written.' >&2\n"
+    "fi\n"
     "D=\"${CLAUDE_STATUS_DIR:-$HOME/.claude-status-display}\"\n"
     "if [ -d \"$D/.git\" ]; then git -C \"$D\" pull --ff-only\n"
     "else git clone https://github.com/chewrocca/claude-status-display.git \"$D\"\n"
@@ -142,25 +157,21 @@ void httpEnroll() {
   http.send(200, "text/plain", sh);
 }
 
-// /<code>/install.sh. The code goes in the path rather than a query string so the command has
-// no character the shell would try to glob, and install.sh stays on the end because that is
-// the shape everyone already recognises. Anything that is not a match is an HTTP error, which
-// matters more than it looks: the command ends in `| sh`, so a refusal that came back as a
-// 200 with an explanation in the body would be piped straight into a shell. Curl's -f turns
-// these into a non-zero exit and prints nothing.
+// /t/<code> hands over the token, and is the only route that does. Refusals are HTTP errors
+// rather than a 200 explaining itself, because the caller pipes this into a shell variable.
 void httpNotFound() {
   String u = http.uri();
-  if (u.endsWith("/install.sh") && u.indexOf('/', 1) > 1) {
-    long given = u.substring(1, u.indexOf('/', 1)).toInt();
+  if (u.startsWith("/t/")) {
     if (!enrollOpen()) {
       http.send(403, "text/plain", "enrollment closed: power-cycle the board and read its screen\n");
       return;
     }
+    long given = u.substring(3).toInt();
     if (given && given == (long)enrollCode) {
-      httpEnroll();
+      http.send(200, "text/plain", netToken);
       return;
     }
-    http.send(403, "text/plain", "wrong code: it is on the board's About page\n");
+    http.send(403, "text/plain", "wrong code\n");
     return;
   }
   http.send(404, "text/plain", "not found\n");
@@ -307,7 +318,8 @@ void netBegin() {
   http.on("/shot", HTTP_GET, httpShot);
   http.on("/cmd", HTTP_GET, httpCmd);
   http.on("/info", HTTP_GET, httpInfo);
-  http.onNotFound(httpNotFound);                      // /<code>/install.sh enrolls a Mac
+  http.on("/install.sh", HTTP_GET, httpEnroll);       // carries no secret, so needs no gate
+  http.onNotFound(httpNotFound);                      // /t/<code> is the gated one
   const char *hdrs[] = {"X-Token"}; http.collectHeaders(hdrs, 1);
   bleBegin();
   xTaskCreate(pollStatusTask, "poll", 16384, nullptr, 1, &pollTask);   // mbedTLS handshake is stack-hungry

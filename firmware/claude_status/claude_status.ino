@@ -755,8 +755,9 @@ void pageAbout() {
   if (wifiUp && enrollOpen()) {
     textAt(lx, ly + 40, "ENROLL", 2, C_AMBER);
     snprintf(b, sizeof b, "curl -fsSL %s", netIp());          textAt(lx, ly + 60, b, 2, C_TXT);
-    snprintf(b, sizeof b, "/%lu/install.sh | sh", (unsigned long)enrollCode);
-    textAt(lx, ly + 80, b, 2, C_TXT);
+    textAt(lx, ly + 80, "/install.sh | sh", 2, C_TXT);
+    snprintf(b, sizeof b, "code %lu", (unsigned long)enrollCode);
+    textAt(lx, ly + 100, b, 2, C_AMBER);                      // it will ask for this
     return;                                  // the rest keeps for the other 23h50m
   }
   textAt(lx, ly + 40, nightMode() ? "night mode" : "day mode", 2, C_DIM);

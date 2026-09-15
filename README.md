@@ -275,13 +275,15 @@ no cable and no flashing. Power-cycle the board and press BOOT round to the Abou
 minutes it shows the command that enrolls a Mac, which is one line to run there.
 
 ```sh
-curl -fsSL 192.168.10.178/985023/install.sh | sh
+curl -fsSL 192.168.10.178/install.sh | sh
 ```
 
-The address and the six digits are the ones on the screen. `-f` is not decoration: the command
-ends in `| sh`, so a refusal returned as a 200 with an explanation in the body would be piped
-into a shell. Every refusal here is an HTTP error and `-f` turns those into a non-zero exit
-with no output at all.
+The address is the one on the screen. The script asks for the six digits shown under it, which
+it trades for the shared token before cloning the repo and running the installer.
+
+`-f` is not decoration: the command ends in `| sh`, so a refusal returned as a 200 with an
+explanation in the body would be piped into a shell. Every refusal here is an HTTP error and
+`-f` turns those into a non-zero exit with no output at all.
 
 It is `http://`, and cannot reasonably be `https://`. The board talks TLS as a *client* to
 reach the Claude status page, and that handshake alone wants a 16 KB stack. Serving TLS needs a
@@ -294,9 +296,14 @@ afterwards so the hooks load.
 
 **Why a code.** The token is the only thing stopping anyone on your network writing to the
 display, so an endpoint that handed it to whoever asked would be worse than the inconvenience
-it saves. The board picks six digits at power-up and prints them as part of the URL on its own
-screen, so the only way to know the address that returns the token is to be standing in front
-of it. Ten minutes after power-up it stops answering at all. A wrong code gets a 403.
+it saves. `/install.sh` carries no secret and needs no gate. The token lives behind `/t/<code>`,
+and the code is six digits the board picks at power-up and shows only on its own screen, so
+getting one means having stood in front of the device. Ten minutes after power-up that route
+stops answering at all, and a wrong code gets a 403.
+
+The prompt works inside a pipeline because the script reads from `/dev/tty`, which `| sh` leaves
+free. Run it somewhere without a terminal and it says so, installs everything else, and leaves
+the token to you.
 
 The manual route still works if you would rather: clone the repo, run `./host/install.sh`, and
 copy `~/.claude/esp32-status/token` across yourself. `install.sh` prints those steps when it
