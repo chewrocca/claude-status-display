@@ -178,9 +178,17 @@ void httpEnroll() {
     // Re-run where a checkout already exists and it should use that, not leave a second copy
     // behind and quietly repoint the agent at it.
     "P=\"$HOME/Library/LaunchAgents/com.claude-status.display.plist\"\n"
+    "U=\"$HOME/.config/systemd/user/claude-status-display.service\"\n"
     "D=\"\"\n"
     "if [ -f \"$P\" ]; then\n"
     "  E=$(sed -n 's|.*<string>\\(/.*\\)/host/claude_status_daemon.py</string>.*|\\1|p' \"$P\" | head -1)\n"
+    "  [ -n \"$E\" ] && [ -f \"$E/host/install.sh\" ] && D=\"$E\"\n"
+    "fi\n"
+    // The same question asked of the other supervisor. Looking only for a plist meant a Linux
+    // box that was already enrolled looked brand new every time, and got a second copy of the
+    // host files in a different directory with the service still pointing at the first.
+    "if [ -z \"$D\" ] && [ -f \"$U\" ]; then\n"
+    "  E=$(sed -n 's|.*--script \\(/.*\\)/host/claude_status_daemon.py.*|\\1|p' \"$U\" | head -1)\n"
     "  [ -n \"$E\" ] && [ -f \"$E/host/install.sh\" ] && D=\"$E\"\n"
     "fi\n"
     // Otherwise take the files from the board. It is carrying them, so there is nothing to

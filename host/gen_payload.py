@@ -2,7 +2,7 @@
 """Embed the host files in the firmware, so a new Mac needs nothing but curl.
 
 install.sh reads two things out of the repo at runtime: the hook it copies into
-~/.claude/hooks, and the daemon the launchd agent points at. Everything else it writes
+~/.claude/hooks, and the daemon the service points at. Everything else it writes
 itself. Serve those two plus install.sh from the board and enrolling a machine stops
 needing git, GitHub, or a checkout at all.
 

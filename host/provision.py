@@ -30,24 +30,39 @@ import serial
 AGENT = "com.claude-status.display"
 
 
+MACOS = sys.platform == "darwin"
+UNIT = "claude-status-display"
+
+
 def agent(action):
-    """Pause / resume the launchd daemon so this script can use the serial port."""
-    uid = os.getuid()
+    """Pause / resume the daemon so this script can use the serial port.
+
+    Whichever supervisor is holding it. The pkill is the backstop either way: a daemon started
+    by hand answers to neither launchctl nor systemctl, and it is still sitting on the port.
+    """
     if action == "stop":
-        subprocess.run(["launchctl", "bootout", f"gui/{uid}/{AGENT}"], capture_output=True)
+        if MACOS:
+            subprocess.run(["launchctl", "bootout", f"gui/{os.getuid()}/{AGENT}"], capture_output=True)
+        else:
+            subprocess.run(["systemctl", "--user", "stop", UNIT], capture_output=True)
         subprocess.run(["pkill", "-f", "claude_status_daemon"], capture_output=True)
         time.sleep(1)
-    else:
+    elif MACOS:
         plist = os.path.expanduser(f"~/Library/LaunchAgents/{AGENT}.plist")
         if os.path.exists(plist):
-            subprocess.run(["launchctl", "bootstrap", f"gui/{uid}", plist], capture_output=True)
+            subprocess.run(["launchctl", "bootstrap", f"gui/{os.getuid()}", plist], capture_output=True)
+    else:
+        subprocess.run(["systemctl", "--user", "start", UNIT], capture_output=True)
 
 STATE = os.path.expanduser("~/.claude/esp32-status")
 TOKEN_FILE = os.path.join(STATE, "token")
 
 
 def open_port():
-    ports = sorted(glob.glob("/dev/cu.usbmodem*"))
+    # Same device under two naming schemes: macOS calls the CDC port after its driver, Linux
+    # after its class.
+    patterns = ["/dev/cu.usbmodem*"] if MACOS else ["/dev/ttyACM*", "/dev/ttyUSB*"]
+    ports = sorted(p for pat in patterns for p in glob.glob(pat))
     if not ports:
         sys.exit("no board on USB")
     s = serial.Serial(); s.port, s.baudrate, s.timeout = ports[0], 115200, 0.5
@@ -132,6 +147,9 @@ def credentials():
         print(f"network: {ssid}  (password from 1Password)")
         return ssid, op_password(ref)
     if "--auto" in sys.argv:
+        if not MACOS:
+            sys.exit("--auto reads the macOS keychain and there is none here. Use --op with a "
+                     "1Password reference, or run this without flags to type the password.")
         ssid = sys.argv[sys.argv.index("--ssid") + 1] if "--ssid" in sys.argv else current_ssid()
         if not ssid:
             sys.exit("could not read the current Wi-Fi network; pass --ssid NAME")
@@ -144,6 +162,9 @@ def credentials():
 
 def main():
     if "--list" in sys.argv:
+        if not MACOS:
+            sys.exit("--list reads the macOS Wi-Fi preferences and there is none here. Pass "
+                     "--ssid NAME with --op, or run this without flags to type both.")
         nets = saved_networks()
         print("Wi-Fi networks saved on this Mac:")
         for n in nets:
