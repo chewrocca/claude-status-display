@@ -31,8 +31,14 @@ STATE = os.path.expanduser("~/.claude/esp32-status")
 SESSIONS = os.path.join(STATE, "sessions")
 ATTENTION = os.path.join(STATE, "attention")
 STATUS_HOSTS = ["https://status.claude.com", "https://status.anthropic.com"]
-# Set CLAUDE_STATUS_PORT_GLOB to a path that matches nothing to force the Wi-Fi path.
-PORT_GLOB = os.environ.get("CLAUDE_STATUS_PORT_GLOB", "/dev/cu.usbmodem*")
+# Where a board on USB shows up, which is the one thing about this that is not the same on
+# every machine: macOS names the CDC device after the driver, Linux after the class, and an
+# ESP32-C6 with CDCOnBoot enumerates as ttyACM (ttyUSB is the older serial-bridge boards).
+# Colon-separated, and set CLAUDE_STATUS_PORT_GLOB to something matching nothing to force the
+# Wi-Fi path.
+DEFAULT_PORT_GLOB = ("/dev/cu.usbmodem*" if sys.platform == "darwin"
+                     else "/dev/ttyACM*:/dev/ttyUSB*")
+PORT_GLOB = os.environ.get("CLAUDE_STATUS_PORT_GLOB", DEFAULT_PORT_GLOB)
 BOARD_HOST = os.environ.get("CLAUDE_STATUS_HOST", "claude-status.local")   # Wi-Fi fallback when USB is absent
 HOST = (os.environ.get("CLAUDE_STATUS_NAME") or socket.gethostname().split(".")[0])[:13]
 TOKEN_FILE = os.path.join(STATE, "token")
@@ -775,7 +781,8 @@ class HttpLink:
 
 
 def open_port():
-    ports = sorted(glob.glob(PORT_GLOB))
+    ports = sorted(p for pattern in PORT_GLOB.split(os.pathsep) if pattern
+                   for p in glob.glob(pattern))
     if not ports:
         return None
     s = serial.Serial()

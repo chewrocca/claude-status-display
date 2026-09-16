@@ -3,7 +3,8 @@
 # requires-python = ">=3.11"
 # dependencies = ["pyserial>=3.5", "pillow>=10"]
 # ///
-"""Capture the device framebuffer as PNG. Stop the launchd daemon first (it owns the port).
+"""Capture the device framebuffer as PNG. Stop the daemon first (it owns the port):
+~/.claude/esp32-status/svc stop
 
 usage: screenshot.py out.png [--state working|done|needs_input|idle] [--out minor|major|none]
                      [--cmd tap,tap,...] [--live] [--http claude-status.local]

@@ -24,7 +24,7 @@ current; a photograph is the one thing here that can't be regenerated.)*
 | ![Weekly burn](docs/screens/burn.png) | ![Limits](docs/screens/limits.png) |
 | **Stats** is the useful part of `/usage`, including cache hit rate and how long the cache stays warm. | **API** shows Claude API and Claude Code health, incidents in amber. |
 | ![Stats](docs/screens/stats.png) | ![API status](docs/screens/api.png) |
-| **Enroll** is how another Mac joins: one command, and a code good for ten minutes after power-up. | **About** is firmware, clock, uptime, session count, and the address the router handed out. |
+| **Enroll** is how another machine joins: one command, and a code good for ten minutes after power-up. | **About** is firmware, clock, uptime, session count, and the address the router handed out. |
 | ![Enroll](docs/screens/enroll.png) | ![About](docs/screens/about.png) |
 
 ### The same thing in a browser
@@ -56,8 +56,9 @@ Hand your coding agent [AGENTS.md](AGENTS.md) and a prompt like:
 ## What you need
 
 - **Waveshare ESP32-C6-LCD-1.47**, the non-touch model. No other hardware, no soldering.
-- **A Mac.** The daemon is portable Python, but the installer and the launchd service are
-  macOS-only. Linux would need a systemd unit; nobody has written one.
+- **A Mac or a Linux box**, or several of each. The installer works out which it is on and
+  registers the daemon with launchd or with systemd as a user service. It needs `jq`, `uv`
+  and `python3`, and says which are missing rather than installing something that cannot run.
 - **A Claude Pro or Max subscription** for the rate-limit gauges. Those fields aren't present on
   API-key billing, so 5HR and WEEK sit empty. Everything else still works.
 - Optionally a printed case. See [hardware notes](docs/hardware.md#the-case).
@@ -72,11 +73,20 @@ Clone the repo and run the installer:
 
 That creates the state directories, installs the hook, patches `~/.claude/statusline.sh` to
 mirror its payload (keeping a dated backup), registers the hooks in `~/.claude/settings.json`,
-and loads the launchd agent. It then prints the flash and Wi-Fi steps. Restart Claude Code
-afterwards so the hooks load.
+and starts the daemon — as a launchd agent on macOS, as a systemd user service on Linux. It
+then prints the flash and Wi-Fi steps. Restart Claude Code afterwards so the hooks load.
 
 It needs `jq` (the hook parses its input with it), `uv` (the daemon is a uv script), and
-`python3`. The installer checks and says which are missing.
+`python3`. The installer checks and says which are missing, in the package manager you have.
+
+It also writes `~/.claude/esp32-status/svc`, which is how you start, stop, restart or tail the
+daemon on any machine without caring which of the two is supervising it:
+
+```sh
+~/.claude/esp32-status/svc            # restart, the default
+~/.claude/esp32-status/svc status
+~/.claude/esp32-status/svc log
+```
 
 ### Flashing
 
@@ -86,10 +96,11 @@ arduino-cli config set board_manager.additional_urls https://espressif.github.io
 arduino-cli core install esp32:esp32
 arduino-cli lib install "Adafruit GFX Library" "Adafruit ST7735 and ST7789 Library" "Adafruit NeoPixel" "ArduinoJson"
 
-launchctl bootout gui/$(id -u)/com.claude-status.display   # free the serial port
+~/.claude/esp32-status/svc stop                            # free the serial port
 arduino-cli compile --fqbn esp32:esp32:esp32c6:CDCOnBoot=cdc,PartitionScheme=no_ota --build-path firmware/build firmware/claude_status
 arduino-cli upload  --fqbn esp32:esp32:esp32c6:CDCOnBoot=cdc,PartitionScheme=no_ota --port /dev/cu.usbmodem* --input-dir firmware/build firmware/claude_status
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.claude-status.display.plist
+# on Linux the board is /dev/ttyACM0 rather than /dev/cu.usbmodem*
+~/.claude/esp32-status/svc start
 ```
 
 Run `python3 host/gen_payload.py` first if you've changed `install.sh`, the hook, or the daemon:
@@ -115,8 +126,8 @@ and API row stay right with the laptop closed.
 
 ### A second machine
 
-No cable and no flashing. Press BOOT round to the Enroll page, which shows the command and a
-six-digit code:
+No cable and no flashing, and it does not have to be the same kind of machine as the first.
+Press BOOT round to the Enroll page, which shows the command and a six-digit code:
 
 ```sh
 curl -fsS 192.168.10.178/install.sh | sh
@@ -211,7 +222,7 @@ are the only state it keeps; window sizes and the weekly curve live on the board
   firmware survives being left alone.
 - [AGENTS.md](AGENTS.md) — written for a coding agent building its own version.
 
-Screenshots come from the device itself: stop the launchd agent and run
+Screenshots come from the device itself: `~/.claude/esp32-status/svc stop` and run
 `uv run --script host/screenshot.py out.png --live`.
 
 ## License

@@ -87,6 +87,6 @@ if you want to design your own. Cases for the *Touch* variant do not fit; the cu
 
 - After you approve a permission prompt there is no "approved" hook event, so the band stays on
   NEEDS YOU until that tool finishes and `PostToolUse` fires.
-- Only one process can hold the serial port. Do not run the daemon by hand while the launchd
+- Only one process can hold the serial port. Do not run the daemon by hand while the supervised
   agent is loaded; two writers interleave bytes and the device shows NO LINK.
-- Host slots are capped at three machines. A fourth evicts the stalest, with no warning.
+- Host slots are capped at six machines. A seventh evicts the stalest, with no warning.

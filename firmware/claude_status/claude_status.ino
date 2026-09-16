@@ -119,7 +119,10 @@ struct Status {
 // to whichever is most urgent, the numbers beside it belong to that same machine, and the
 // counts and the session list are the sum of all of them. A slot nobody has written to for
 // two minutes is a laptop that has gone to sleep, and drops out.
-#define HOST_SLOTS 3
+// Six, not three. A slot is about 730 bytes on a board with half a megabyte of RAM, and three
+// was exactly the number of machines it takes to start silently evicting one -- which looks
+// from the desk like the display forgetting a laptop at random rather than running out of room.
+#define HOST_SLOTS 6
 #define HOST_TTL_MS (2UL * 60UL * 1000UL)
 struct HostSlot { Status s; unsigned long seen = 0; bool used = false; };
 HostSlot hostSlots[HOST_SLOTS];
