@@ -809,10 +809,16 @@ def handle_device(ser, poller, buf):
             msg = json.loads(line)
         except Exception:
             continue
+        # Anything the board says is proof that this port is the board. Only a payload it
+        # accepted outright used to count, so a board saying hello, or rejecting what it was
+        # sent, read exactly like a port with nothing on the end of it -- and twenty seconds
+        # later the daemon disowned its own board and went to Wi-Fi for five minutes. A
+        # rejected payload is a conversation, not silence.
+        handle_device.acked = True
         if msg.get("cmd") == "poll":
             poller.force()
-        elif "ok" in msg and not handle_device.acked:
-            handle_device.acked = True
+        elif "ok" in msg and not handle_device.greeted:
+            handle_device.greeted = True
             log(f"device acknowledged payload ts={msg.get('ok')} st={msg.get('st')}")
         elif "hello" in msg:
             log(f"device hello fw={msg.get('fw')}")
@@ -830,7 +836,8 @@ def handle_device(ser, poller, buf):
     return buf[-1024:]
 
 
-handle_device.acked = False
+handle_device.acked = False      # this port has identified itself as the board
+handle_device.greeted = False    # the one-time "acknowledged payload" line has been logged
 
 
 def main():
@@ -849,7 +856,7 @@ def main():
                 ser = open_port()
                 if ser is not None:
                     serial_since = time.time()
-                    handle_device.acked = False
+                    handle_device.acked = handle_device.greeted = False
             if ser is not None:
                 buf = handle_device(ser, poller, buf)
                 # If nothing on that port ever acknowledges, it is not our board. Drop it
@@ -885,7 +892,8 @@ def main():
             log(f"serial error: {e}")
             try: ser and ser.close()
             except Exception: pass
-            ser, last_key, handle_device.acked = None, None, False
+            ser, last_key = None, None
+            handle_device.acked = handle_device.greeted = False
             time.sleep(2)
         except Exception as e:
             log(f"unexpected: {e!r}")
