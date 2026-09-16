@@ -69,9 +69,19 @@ letting the newest overwrite everything. What you see is the merge:
 - A machine not heard from for two minutes has gone to sleep and drops out.
 
 **Rate limits are the exception** and are shared, because they belong to the account rather than
-any machine. If the machine holding the headline has none of its own, the freshest reading from
-any other is used, and a borrowed reading older than ten minutes is drawn dim: visible, and
-visibly not this minute's.
+any machine. The board keeps the last reading it saw from anyone, so a machine with none of its
+own borrows it whether or not the machine that reported it is still awake. That matters more
+than it sounds: the machine *with* a reading is the one with a terminal window open, and the
+machine without is one running only the desktop app, which mirrors no status line at all. While
+the borrow could only come from a live slot, 5HR and WEEK went blank the moment the laptop
+running the terminal slept — or simply had nothing to say for two minutes. A borrowed reading
+carries its age, and one older than ten minutes is drawn dim: visible, and visibly not this
+minute's. The reset times stay exact however old it is, since they are absolute; the minutes
+remaining are counted down from when it was taken.
+
+**The weekly curve is the board's too**, and survives the headline moving between machines. It
+used to travel inside the payload struct that a merge replaces wholesale, so it blinked out
+whenever the machine that owned the headline was one with no rate limits to draw it from.
 
 Set `CLAUDE_STATUS_NAME` to have a machine report as something other than its hostname.
 

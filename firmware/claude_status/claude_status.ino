@@ -18,7 +18,7 @@
 #include <esp_task_wdt.h>
 #include "sprites.h"
 
-#define FW_VERSION "10.0"
+#define FW_VERSION "10.1"
 
 // --- board pins (Waveshare wiki: ESP32-C6-LCD-1.47) -----------------------
 #define PIN_MOSI 6
@@ -124,6 +124,22 @@ struct Status {
 struct HostSlot { Status s; unsigned long seen = 0; bool used = false; };
 HostSlot hostSlots[HOST_SLOTS];
 int liveHosts = 0;
+
+// The last rate-limit reading this board saw, whoever sent it. They are the account's rather
+// than any machine's, so the freshest one is true for every window -- and it has to outlive
+// the machine that reported it, because the machine with a reading of its own is the one with
+// a terminal window open, and the one without is a desktop-app window that mirrors no status
+// line at all. Borrowing only from a *live* host slot meant that as soon as the laptop running
+// the terminal slept, or simply had nothing to say for two minutes, 5HR and WEEK went blank on
+// a display that had known both numbers seconds earlier. This is the board's memory, like the
+// window sizes and the weekly curve: the one part of this that is always on.
+struct RateLimits {
+  int h5 = -1, wk = -1, h5m = -1, wkm = -1;
+  bool lim = false, have = false;
+  char h5r[12] = "", wkr[16] = "";
+  unsigned long at = 0;            // millis() the reading was taken, not the millis() we heard it
+};
+RateLimits lastRl;
 
 const char *clockStr();
 const char *netIp();
@@ -1163,6 +1179,14 @@ void histSave() {
 }
 
 // Returns the pace: how far above an even spend the week is running.
+// The pace on its own, with none of the bookkeeping histUpdate does, so it can be recomputed
+// after the merge for a machine whose limits were borrowed rather than its own.
+int paceOf(int wk, int wkm) {
+  if (wk < 0 || wkm < 0) return 999;
+  long left = wkm > WEEK_MINUTES ? WEEK_MINUTES : wkm;
+  return wk - (int)((WEEK_MINUTES - left) * 100 / WEEK_MINUTES);
+}
+
 int histUpdate(int wk, int wkm) {
   if (wk < 0 || wkm < 0) return 999;
   long left = wkm > WEEK_MINUTES ? WEEK_MINUTES : wkm;
@@ -1177,7 +1201,7 @@ int histUpdate(int wk, int wkm) {
   S.nhist = idx + 1;
   S.histAnchored = true;
   if (moved || millis() - histSavedAt > 300000UL) histSave();
-  return wk - (int)(elapsed * 100 / WEEK_MINUTES);
+  return paceOf(wk, wkm);
 }
 
 void sendWindows() {
@@ -1214,6 +1238,39 @@ static int statePri(const char *st) {
   return 3;
 }
 
+// Remember a reading as soon as one arrives. A payload may itself be carrying a borrowed
+// reading (the daemon does the same thing across the windows of one machine and says how old
+// it is in rlage), so date it from when it was taken rather than from when we heard it.
+static void rememberLimits() {
+  // Both or nothing. A status line reports the two windows together, so half a reading is not
+  // a reading -- and remembering one would blank the other window for every machine borrowing it.
+  if (S.h5 < 0 || S.wk < 0) return;
+  lastRl.h5 = S.h5; lastRl.wk = S.wk; lastRl.h5m = S.h5m; lastRl.wkm = S.wkm;
+  lastRl.lim = S.lim;
+  strlcpy(lastRl.h5r, S.h5r, sizeof lastRl.h5r);
+  strlcpy(lastRl.wkr, S.wkr, sizeof lastRl.wkr);
+  unsigned long age = S.rlage > 0 ? (unsigned long)S.rlage * 1000UL : 0UL;
+  lastRl.at = millis() - (age < millis() ? age : 0UL);
+  lastRl.have = true;
+}
+
+// Fill in limits the headline machine has none of. The reset *times* stay right however old
+// the reading is -- they are absolute -- but the minutes remaining were counted from when it
+// was taken, so count them down. rlage travels with it so the gauges draw an old reading dim
+// rather than as this minute's.
+static void applyKnownLimits() {
+  if (!lastRl.have || (S.h5 >= 0 && S.wk >= 0)) return;
+  int age = (int)((millis() - lastRl.at) / 1000UL);
+  int drift = age / 60;
+  S.h5 = lastRl.h5; S.wk = lastRl.wk;
+  S.h5m = lastRl.h5m < 0 ? -1 : max(0, lastRl.h5m - drift);
+  S.wkm = lastRl.wkm < 0 ? -1 : max(0, lastRl.wkm - drift);
+  S.lim = lastRl.lim;
+  strlcpy(S.h5r, lastRl.h5r, sizeof S.h5r);
+  strlcpy(S.wkr, lastRl.wkr, sizeof S.wkr);
+  S.rlage = age;
+}
+
 static void saveHostSlot() {
   int idx = -1, oldest = 0;
   for (int i = 0; i < HOST_SLOTS; i++) {
@@ -1240,24 +1297,27 @@ static void mergeHosts() {
   }
   liveHosts = live;
   if (head < 0) return;
-  S = hostSlots[head].s;              // the numbers belong to the machine that owns the state
-  if (live < 2) return;
+  // The weekly curve is the board's, not a machine's, but every payload replaces this whole
+  // struct -- so copying a slot in wholesale handed the curve back to whatever that machine
+  // happened to have seen, and it blinked out whenever the headline moved to a machine with
+  // no rate limits of its own. Carry it across the merge.
+  uint8_t curve[sizeof S.hist];
+  memcpy(curve, S.hist, sizeof curve);
+  int nh = S.nhist; bool anchored = S.histAnchored;
 
-  // Rate limits are the account's, not the machine's, so any live reading will do and the
-  // freshest is the best. The headline machine may have none of its own.
-  if (S.wk < 0 || S.h5 < 0) {
-    int best = -1;
-    for (int i = 0; i < HOST_SLOTS; i++)
-      if (hostSlots[i].used && hostSlots[i].s.wk >= 0 &&
-          (best < 0 || hostSlots[i].seen > hostSlots[best].seen)) best = i;
-    if (best >= 0) {
-      S.h5 = hostSlots[best].s.h5; S.wk = hostSlots[best].s.wk;
-      S.h5m = hostSlots[best].s.h5m; S.wkm = hostSlots[best].s.wkm;
-      strlcpy(S.h5r, hostSlots[best].s.h5r, sizeof S.h5r);
-      strlcpy(S.wkr, hostSlots[best].s.wkr, sizeof S.wkr);
-      S.lim = hostSlots[best].s.lim;
-    }
-  }
+  S = hostSlots[head].s;              // the numbers belong to the machine that owns the state
+
+  memcpy(S.hist, curve, sizeof curve);
+  S.nhist = nh; S.histAnchored = anchored;
+  // Rate limits are the exception: the account's, not the machine's. The headline machine may
+  // have none of its own -- a desktop-app window mirrors no status line, so its daemon has
+  // nothing to read them from -- and the machine that does have them may be asleep. The board
+  // kept the last reading, so use that, however few machines are awake right now.
+  applyKnownLimits();
+  // A machine with no limits of its own recorded no pace either, so the burn page stayed empty
+  // behind gauges that now read fine.
+  if (S.pace == 999) S.pace = paceOf(S.wk, S.wkm);
+  if (live < 2) return;
 
   // Counts and the session list are the sum of every machine: the whole point is that the
   // desk speaks for all of them at once.
@@ -1382,6 +1442,7 @@ void handleLine(const char *line) {
   lastRx = rxAt = millis();
   haveLink = true;
   // Keep this machine's payload, then redraw from every machine at once.
+  rememberLimits();
   saveHostSlot();
   mergeHosts();
   dirty = true;

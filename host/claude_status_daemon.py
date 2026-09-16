@@ -36,8 +36,10 @@ PORT_GLOB = os.environ.get("CLAUDE_STATUS_PORT_GLOB", "/dev/cu.usbmodem*")
 BOARD_HOST = os.environ.get("CLAUDE_STATUS_HOST", "claude-status.local")   # Wi-Fi fallback when USB is absent
 HOST = (os.environ.get("CLAUDE_STATUS_NAME") or socket.gethostname().split(".")[0])[:13]
 TOKEN_FILE = os.path.join(STATE, "token")
-HTTP_RETRY_S = 10
+HTTP_RETRY_MIN_S = 1      # one dropped POST is not an outage; try again next tick
+HTTP_RETRY_MAX_S = 10     # a board that is genuinely gone is not worth a packet a second
 HTTP_TIMEOUT_S = 8        # mDNS resolution alone can take 5 s on a cold cache
+HTTP_TIMEOUT_IP_S = 3     # no resolution to wait for once the address is pinned
 SERIAL_COOLDOWN_S = 300   # a port that never acknowledges is not our board; stop poking it
 QUIET_BELOW = 70          # a gauge under this needs no space; nothing is decided at 31%
 MAX_SESSIONS = 4          # rows that fit the panel; the rest are summarised as a count
@@ -521,6 +523,22 @@ def window_label(size):
     return str(n)
 
 
+def row_ctx(sl, transcript):
+    """The context percentage for one row, from the status line or failing that the transcript.
+
+    A window running in the desktop app mirrors no status line, so its row carried no context
+    at all while a terminal window on the same machine showed a percentage beside it. The
+    headline already falls back to the transcript for exactly this; the list did not, which
+    made the second machine look like it was reporting less than the first when the difference
+    was really which surface the window was open in.
+    """
+    p = pct((sl.get("context_window") or {}).get("used_percentage"))
+    if p >= 0 or not transcript:
+        return p
+    t = transcript_tail(transcript)
+    return t["ctx_pct"] if t.get("ctx_pct") is not None else -1
+
+
 def session_rows():
     """One row per live session, ranked by who is blocked and for how long.
 
@@ -539,7 +557,7 @@ def session_rows():
         if now - max(m, ts) > SESSION_TTL_S:
             continue
         att[os.path.splitext(os.path.basename(f))[0]] = (
-            d.get("state") or "idle", ts, d.get("cwd") or "")
+            d.get("state") or "idle", ts, d.get("cwd") or "", d.get("transcript") or "")
 
     rows = []
     sess = {os.path.splitext(os.path.basename(f))[0]: (f, m) for f, m in fresh_files(SESSIONS)}
@@ -551,7 +569,7 @@ def session_rows():
         sl = (read_json(f) or {}) if f else {}
         if sl:
             learn_window(sl)                        # every payload teaches one model's size
-        state, ts, hook_cwd = att.get(sid, ("idle", m, ""))
+        state, ts, hook_cwd, hook_tr = att.get(sid, ("idle", m, "", ""))
         wait = int(now - ts)
         # No hook has fired and nothing has been written for hours: that window is closed,
         # not idle. Listing it is clutter on a four-row page.
@@ -571,7 +589,7 @@ def session_rows():
             "s": {"needs_input": "n", "done": "d", "working": "w", "over": "o", "idle": "i"}.get(state, "i"),
             "w": wait,
             "c": round(float((sl.get("cost") or {}).get("total_cost_usd") or 0), 2),
-            "x": pct((sl.get("context_window") or {}).get("used_percentage")),
+            "x": row_ctx(sl, hook_tr),
         })
 
     # needs you first, then finished and waiting, then working, then over. Longest wait wins
@@ -678,7 +696,12 @@ def build_payload(poller):
     if not ts or now - ts > IDLE_AFTER_S:
         state = "idle"
     p["st"] = state
-    p["ts"] = int(ts)
+    # A machine with nothing live still has something to say: that it is here, and idle. Sending
+    # ts=0 had the board reject the whole payload ("no ts"), so a quiet machine held no host slot
+    # at all and only appeared once its first hook fired. That is the display looking slow to
+    # wake when the machine had in fact been talking to it the whole time. age stays -1, because
+    # the report time is not the age of data there is none of.
+    p["ts"] = int(ts or now)
     p["age"] = int(now - ts) if ts else -1
     return p
 
@@ -696,6 +719,9 @@ class HttpLink:
     def __init__(self):
         self.ok, self.next_try, self.token = False, 0, read_token()
         self.host = BOARD_HOST          # swapped for the numeric IP once we learn it, mDNS is slow
+        self.pinned = False             # host is a numeric address rather than a name to resolve
+        self.fails = 0
+        self.backoff = HTTP_RETRY_MIN_S
 
     def send(self, payload):
         if time.time() < self.next_try:
@@ -704,7 +730,8 @@ class HttpLink:
         req = urllib.request.Request(f"http://{self.host}/status", data=body, method="POST",
                                      headers={"Content-Type": "application/json", "X-Token": self.token})
         try:
-            with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT_S) as r:
+            with urllib.request.urlopen(
+                    req, timeout=HTTP_TIMEOUT_IP_S if self.pinned else HTTP_TIMEOUT_S) as r:
                 raw = r.read()
             try:                                  # the reply carries the board's window map
                 adopt_windows((json.loads(raw) or {}).get("win"))
@@ -713,14 +740,25 @@ class HttpLink:
             if not self.ok:
                 log(f"wifi link up ({self.host})")
                 self.learn_ip()
-            self.ok = True
+            self.ok, self.fails, self.backoff = True, 0, HTTP_RETRY_MIN_S
             return True
         except Exception as e:
             if self.ok:
                 log(f"wifi link lost: {e}")
             self.ok = False
-            self.host = BOARD_HOST       # fall back to the name; the IP may have changed
-            self.next_try = time.time() + HTTP_RETRY_S
+            self.fails += 1
+            # Keep the numeric address. It is the thing that was working, and re-resolving
+            # claude-status.local costs seconds on a cold mDNS cache -- so treating every
+            # dropped POST as a reason to go back to the name made the next few sends slow
+            # as well. Only give the address up once it has failed repeatedly, which is what
+            # a new DHCP lease looks like from here.
+            if self.fails >= 3 and self.pinned:
+                self.host, self.pinned = BOARD_HOST, False
+            # The board is a single-connection web server: a POST that arrives while it is
+            # answering the dashboard simply loses the race. Backing off ten seconds for that
+            # left the display a turn behind. Start at a second and only grow if it persists.
+            self.backoff = min(HTTP_RETRY_MAX_S, self.backoff * 2)
+            self.next_try = time.time() + self.backoff
             return False
 
     def learn_ip(self):
@@ -730,7 +768,7 @@ class HttpLink:
             with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT_S) as r:
                 ip = json.load(r).get("ip")
             if ip and ip != "0.0.0.0":
-                self.host = ip
+                self.host, self.pinned = ip, True
                 log(f"wifi link pinned to {ip}")
         except Exception:
             pass
@@ -832,7 +870,10 @@ def main():
                     clear_windows_dirty()
                 if VERBOSE:
                     log(payload)
-            time.sleep(0.5 if ser is not None else 1.0)
+            # How soon a change is noticed, not how often one is sent: the payload still goes
+            # on change or every HEARTBEAT_S. A second of this on the Wi-Fi path was a second
+            # of the board being behind, for nothing.
+            time.sleep(0.5)
         except (serial.SerialException, OSError) as e:
             log(f"serial error: {e}")
             try: ser and ser.close()
