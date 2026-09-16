@@ -37,7 +37,7 @@ say "hook installed"
 # source of truth we mirror its payload to a per-session file the daemon reads.
 SL="$HOME/.claude/statusline.sh"
 if [[ ! -f "$SL" ]]; then
-  say "NOTE: no ~/.claude/statusline.sh found; see README for the two lines to add"
+  say "NOTE: no ~/.claude/statusline.sh found; AGENTS.md has the two lines to add"
 elif grep -q "esp32-status" "$SL"; then
   say "statusline already mirrors payloads"
 else
