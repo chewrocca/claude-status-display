@@ -341,6 +341,11 @@ void httpDashboard() {
     ".status-done { color:#ffc800; font-weight:bold; }"
     ".status-needs { color:#ff6b6b; font-weight:bold; }"
     ".status-idle { color:#666; font-weight:bold; }"
+    // Added and removed, in the dashboard's own softened versions of the board's C_GREEN and
+    // C_RED. The separator stays dim so the two numbers are what the eye lands on.
+    ".lines-add { color:#2ecc71; }"
+    ".lines-del { color:#ff6b6b; }"
+    ".lines-sep { color:#666; font-weight:normal; margin:0 2px; }"
     ".health-none { color:#2ecc71; }"
     ".health-minor { color:#ffc800; }"
     ".health-major { color:#ff9500; }"
@@ -404,7 +409,12 @@ void httpDashboard() {
     "    <div class=stat><span class=stat-label>Duration</span><span id=dur class=stat-value>–</span></div>"
     "    <div class=stat><span class=stat-label>API Time</span><span id=api class=stat-value>–</span></div>"
     "    <div class=stat><span class=stat-label>Cache Hit</span><span id=ch class=stat-value>–</span></div>"
-    "    <div class=stat><span class=stat-label>Lines ±</span><span id=lines class=stat-value>–</span></div>"
+    // Split into two spans so each side carries its own colour, the way the board draws it.
+    // The signs are not decoration: they are what keeps the row readable when the colours are
+    // the one thing a reader cannot tell apart.
+    "    <div class=stat><span class=stat-label>Lines ±</span><span class=stat-value>"
+    "<span id=la class=lines-add>–</span><span class=lines-sep>/</span>"
+    "<span id=lr class=lines-del>–</span></span></div>"
     "  </div>"
     "</div>"
     "<div class=panel style='margin-bottom:20px;'>"
@@ -500,7 +510,8 @@ void httpDashboard() {
     "  document.getElementById('dur').textContent=(d.dur||0)+'m';"
     "  document.getElementById('api').textContent=(d.api||0)+'m';"
     "  document.getElementById('ch').textContent=d.ch>=0?d.ch+'%':'–';"
-    "  document.getElementById('lines').textContent=(d.la||0)+'/'+(d.lr||0);"
+    "  document.getElementById('la').textContent='+'+(d.la||0);"
+    "  document.getElementById('lr').textContent='-'+(d.lr||0);"
     "  document.getElementById('clock').textContent=d.hm||'';"
     "  document.getElementById('fw').textContent=d.fw||'–';"
     "  const age=d.age>=0?d.age+'s':'–';document.getElementById('age').textContent=age;"
