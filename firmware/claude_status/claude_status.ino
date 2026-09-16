@@ -1242,7 +1242,9 @@ static int statePri(const char *st) {
 // reading (the daemon does the same thing across the windows of one machine and says how old
 // it is in rlage), so date it from when it was taken rather than from when we heard it.
 static void rememberLimits() {
-  if (S.h5 < 0 && S.wk < 0) return;
+  // Both or nothing. A status line reports the two windows together, so half a reading is not
+  // a reading -- and remembering one would blank the other window for every machine borrowing it.
+  if (S.h5 < 0 || S.wk < 0) return;
   lastRl.h5 = S.h5; lastRl.wk = S.wk; lastRl.h5m = S.h5m; lastRl.wkm = S.wkm;
   lastRl.lim = S.lim;
   strlcpy(lastRl.h5r, S.h5r, sizeof lastRl.h5r);
