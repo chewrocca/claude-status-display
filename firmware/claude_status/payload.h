@@ -407,7 +407,7 @@ jq -n --arg state "$state" --arg event "$ev" --arg detail "${nt:-$tool}" --arg c
 exit 0
 )ESP32PAYLOAD";
 
-// host/claude_status_daemon.py, 39494 bytes
+// host/claude_status_daemon.py, 39517 bytes
 static const char PAYLOAD_DAEMON[] PROGMEM = R"ESP32PAYLOAD(#!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.11"
@@ -1112,12 +1112,12 @@ def build_payload(poller):
     if not ts or now - ts > IDLE_AFTER_S:
         state = "idle"
     p["st"] = state
-    # A machine with nothing live still has something to say: that it is here, and idle. Sending
-    # ts=0 had the board reject the whole payload ("no ts"), so a quiet machine held no host slot
-    # at all and only appeared once its first hook fired. That is the display looking slow to
-    # wake when the machine had in fact been talking to it the whole time. age stays -1, because
-    # the report time is not the age of data there is none of.
-    p["ts"] = int(ts or now)
+    # Zero when this machine has no attention data at all, and deliberately so: the board treats
+    # a payload with no ts as nothing to say and discards it whole, leaving the state it already
+    # had. Sending the clock instead made "I know nothing" arrive as "I am idle", which the board
+    # believed -- so a window the hooks were not reporting on turned the band from READY or BUSY
+    # to IDLE, on a machine that had simply gone quiet. Silence has to stay silence here.
+    p["ts"] = int(ts)
     p["age"] = int(now - ts) if ts else -1
     return p
 
